@@ -205,3 +205,50 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+
+# custom additions
+# --- General / Top-Level ---
+# Ignore all environment files - DO NOT COMMIT SECRETS!
+.env
+.env.*
+!/.env.example
+
+# Ignore OS-specific files
+.DS_Store
+Thumbs.db
+
+# Ignore IDE-specific folders
+.idea/
+.vscode/
+
+
+# --- Python / sales-enforcer ---
+# Ignore the virtual environment folder
+sales-enforcer/venv/
+
+# Ignore Python bytecode and cache
+sales-enforcer/__pycache__/
+sales-enforcer/*.pyc
+
+
+# --- Next.js / dashboard ---
+# Ignore the massive node_modules folder
+dashboard/node_modules/
+
+# Ignore the build output folder
+dashboard/.next/
+
+# Ignore local environment variables
+dashboard/.env.local
+
+# Ignore log files
+dashboard/npm-debug.log*
+dashboard/yarn-error.log
+dashboard/pnpm-debug.log
+
+
+# --- n8n ---
+# Ignore the local data volume for n8n
+# This contains the n8n database, credentials, and user files
+n8n/n8n_data/
