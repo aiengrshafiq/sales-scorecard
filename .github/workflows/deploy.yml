@@ -26,6 +26,8 @@ jobs:
       - name: Build and push sales-enforcer image
         run: |
           cd sales-enforcer
+          # Ensure entrypoint.sh has the correct line endings
+          sed -i 's/\r$//' entrypoint.sh
           docker build -t ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} .
           docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
 
@@ -35,7 +37,7 @@ jobs:
             --name sales-enforcer-api \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
             --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} \
-            --command "uvicorn main:app --host 0.0.0.0 --port 80"
+            --set-env-vars "APP_MODE=api"
 
       - name: Deploy sales-enforcer-worker
         run: |
@@ -43,7 +45,4 @@ jobs:
             --name sales-enforcer-worker \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
             --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} \
-            --command "celery -A celery_worker worker -P gevent --loglevel=INFO"
-
-      # NOTE: The n8n deployment step has been removed for now to focus on the core services.
-      # We can add it back later using the same 'az containerapp update' pattern.
+            --set-env-vars "APP_MODE=worker"
