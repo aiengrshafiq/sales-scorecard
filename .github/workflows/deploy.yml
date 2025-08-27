@@ -34,17 +34,22 @@ jobs:
         with:
           containerAppName: sales-enforcer-api
           resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
-          # This is the correct way to pass advanced configuration
           yamlConfigPath: ./sales-enforcer/.azure/api.yaml
-          # This replaces the image placeholder in the YAML file
-          imageToDeploy: ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
+          # --- THIS IS THE FIX ---
+          # We now pass the image details as environment variables to the YAML file
+          environmentVariables: |
+            REGISTRY=${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io
+            IMAGE_NAME=sales-enforcer
+            IMAGE_TAG=${{ github.sha }}
 
       - name: Deploy sales-enforcer-worker
         uses: azure/container-apps-deploy-action@v1
         with:
           containerAppName: sales-enforcer-worker
           resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
-          # This uses the worker-specific YAML configuration
           yamlConfigPath: ./sales-enforcer/.azure/worker.yaml
-          # This replaces the image placeholder in the YAML file
-          imageToDeploy: ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
+          # --- THIS IS THE FIX ---
+          environmentVariables: |
+            REGISTRY=${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io
+            IMAGE_NAME=sales-enforcer
+            IMAGE_TAG=${{ github.sha }}
