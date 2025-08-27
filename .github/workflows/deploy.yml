@@ -8,8 +8,6 @@ on:
       - main
   workflow_dispatch:
 
-# No 'env:' block needed here anymore
-
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
@@ -40,7 +38,8 @@ jobs:
       - name: Deploy sales-enforcer-api
         uses: azure/container-apps-deploy-action@v1
         with:
-          appName: sales-enforcer-api
+          # --- CORRECTED PARAMETER NAMES ---
+          containerAppName: sales-enforcer-api
           resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
           containerAppEnvironment: ${{ secrets.CONTAINER_APP_ENV }}
           imageToDeploy: ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
@@ -49,15 +48,18 @@ jobs:
       - name: Deploy sales-enforcer-worker
         uses: azure/container-apps-deploy-action@v1
         with:
-          appName: sales-enforcer-worker
+          # --- CORRECTED PARAMETER NAMES ---
+          containerAppName: sales-enforcer-worker
           resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
           containerAppEnvironment: ${{ secrets.CONTAINER_APP_ENV }}
           imageToDeploy: ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
+          # No 'command' needed here, it will use the Dockerfile's default CMD
 
       - name: Deploy n8n-service
         uses: azure/container-apps-deploy-action@v1
         with:
-          appName: n8n-service
+          # --- CORRECTED PARAMETER NAMES ---
+          containerAppName: n8n-service
           resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
           containerAppEnvironment: ${{ secrets.CONTAINER_APP_ENV }}
           imageToDeploy: ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/n8n-custom:${{ github.sha }}
