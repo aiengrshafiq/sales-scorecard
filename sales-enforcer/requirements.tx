@@ -1,1 +1,0 @@
-#pip install fastapi "uvicorn[standard]" sqlalchemy "psycopg2-binary" alembic celery[redis] python-dotenv

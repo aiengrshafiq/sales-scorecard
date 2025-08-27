@@ -1,0 +1,63 @@
+# .github/workflows/deploy.yml
+
+name: Build and Deploy Backend Services to Azure
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+# No 'env:' block needed here anymore
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Azure
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Log in to ACR
+        run: az acr login --name ${{ secrets.AZURE_CONTAINER_REGISTRY }}
+
+      - name: Build and push sales-enforcer image
+        run: |
+          cd sales-enforcer
+          docker build -t ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} .
+          docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
+
+      - name: Build and push n8n image
+        run: |
+          cd n8n
+          docker build -t ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/n8n-custom:${{ github.sha }} .
+          docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/n8n-custom:${{ github.sha }}
+
+      - name: Deploy sales-enforcer-api
+        uses: azure/container-apps-deploy-action@v1
+        with:
+          appName: sales-enforcer-api
+          resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          containerAppEnvironment: ${{ secrets.CONTAINER_APP_ENV }}
+          imageToDeploy: ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
+          command: "uvicorn main:app --host 0.0.0.0 --port 80"
+          
+      - name: Deploy sales-enforcer-worker
+        uses: azure/container-apps-deploy-action@v1
+        with:
+          appName: sales-enforcer-worker
+          resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          containerAppEnvironment: ${{ secrets.CONTAINER_APP_ENV }}
+          imageToDeploy: ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
+
+      - name: Deploy n8n-service
+        uses: azure/container-apps-deploy-action@v1
+        with:
+          appName: n8n-service
+          resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
+          containerAppEnvironment: ${{ secrets.CONTAINER_APP_ENV }}
+          imageToDeploy: ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/n8n-custom:${{ github.sha }}
