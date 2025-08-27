@@ -36,10 +36,9 @@ jobs:
             --name sales-enforcer-api \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
             --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} \
+            --remove-env-vars APP_MODE \
             --set-env-vars "APP_MODE=api" \
-                           "DATABASE_URL=secretref:db-url" \
-                           "REDIS_URL=secretref:redis-url" \
-                           "PIPEDRIVE_API_TOKEN=secretref:pipedrive-token"
+            --command "" # This line explicitly clears the old startup command
 
       - name: Deploy sales-enforcer-worker
         run: |
@@ -47,7 +46,6 @@ jobs:
             --name sales-enforcer-worker \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
             --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} \
+            --remove-env-vars APP_MODE \
             --set-env-vars "APP_MODE=worker" \
-                           "DATABASE_URL=secretref:db-url" \
-                           "REDIS_URL=secretref:redis-url" \
-                           "PIPEDRIVE_API_TOKEN=secretref:pipedrive-token"
+            --command "" # This line explicitly clears the old startup command
