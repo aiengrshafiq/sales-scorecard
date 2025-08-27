@@ -26,7 +26,6 @@ jobs:
       - name: Build and push sales-enforcer image
         run: |
           cd sales-enforcer
-          # Ensure entrypoint.sh has the correct line endings
           sed -i 's/\r$//' entrypoint.sh
           docker build -t ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} .
           docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
@@ -37,7 +36,10 @@ jobs:
             --name sales-enforcer-api \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
             --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} \
-            --set-env-vars "APP_MODE=api"
+            --set-env-vars "APP_MODE=api" \
+                           "DATABASE_URL=secretref:db-url" \
+                           "REDIS_URL=secretref:redis-url" \
+                           "PIPEDRIVE_API_TOKEN=secretref:pipedrive-token"
 
       - name: Deploy sales-enforcer-worker
         run: |
@@ -45,4 +47,7 @@ jobs:
             --name sales-enforcer-worker \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
             --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} \
-            --set-env-vars "APP_MODE=worker"
+            --set-env-vars "APP_MODE=worker" \
+                           "DATABASE_URL=secretref:db-url" \
+                           "REDIS_URL=secretref:redis-url" \
+                           "PIPEDRIVE_API_TOKEN=secretref:pipedrive-token"
