@@ -4,8 +4,30 @@
 'use client'; // Tells Next.js to render this component in the browser.
 
 import React from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, AreaChart, Area, PieChart, Pie, Cell } from 'recharts';
-import { Award, Target, TrendingUp, Clock, Users, Star, Zap, Percent, ShieldCheck, ThumbsDown, PhoneForwarded } from 'lucide-react';
+// Corrected: Removed unused chart components to clean up build warnings
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
+// Corrected: Removed unused icon and added new ones
+import { Award, Target, TrendingUp, Clock, Users, Star, Zap, Percent, ShieldCheck, PhoneForwarded } from 'lucide-react';
+
+// --- TYPE DEFINITIONS (This is the main fix) ---
+interface CardProps {
+  children: React.ReactNode;
+  className?: string;
+}
+
+interface KpiCardProps {
+  title: string;
+  value: string | number;
+  icon: React.ElementType;
+  change?: string;
+}
+
+interface HealthStatCardProps {
+    title: string;
+    value: number;
+    icon: React.ElementType;
+}
+
 
 // --- DUMMY DATA (Updated with new metrics) ---
 const dummyData = {
@@ -15,7 +37,6 @@ const dummyData = {
     dealsInPipeline: 76,
     avgSpeedToClose: 18, // in days
   },
-  // NEW: Sales Funnel & Health Metrics
   salesHealth: {
     leadToContactedSameDay: 82,
     qualToDesignFee: 65,
@@ -48,15 +69,15 @@ const dummyData = {
   ],
 };
 
-// --- HELPER COMPONENTS ---
+// --- HELPER COMPONENTS (Now with explicit types) ---
 
-const Card = ({ children, className = '' }) => (
+const Card: React.FC<CardProps> = ({ children, className = '' }) => (
   <div className={`bg-gray-800/50 border border-gray-700/50 rounded-xl shadow-lg backdrop-blur-sm ${className}`}>
     {children}
   </div>
 );
 
-const KpiCard = ({ title, value, icon: Icon, change }) => (
+const KpiCard: React.FC<KpiCardProps> = ({ title, value, icon: Icon, change }) => (
   <Card className="p-5">
     <div className="flex items-center justify-between">
       <p className="text-sm font-medium text-gray-400">{title}</p>
@@ -71,8 +92,7 @@ const KpiCard = ({ title, value, icon: Icon, change }) => (
   </Card>
 );
 
-// NEW: Smaller stat card for health metrics
-const HealthStatCard = ({ title, value, icon: Icon }) => (
+const HealthStatCard: React.FC<HealthStatCardProps> = ({ title, value, icon: Icon }) => (
     <Card className="p-4">
         <div className="flex items-center">
             <div className="p-3 bg-gray-700/50 rounded-lg">
@@ -93,7 +113,7 @@ export default function SalesScorecardDashboard() {
   const { kpis, leaderboard, pointsOverTime, recentActivity, salesHealth } = dummyData;
   const quotaAttainment = ((kpis.totalPoints / kpis.quarterlyTarget) * 100).toFixed(1);
 
-  const activityIcons = {
+  const activityIcons: { [key: string]: React.ReactNode } = {
     win: <Award className="h-5 w-5 text-yellow-400" />,
     stage: <TrendingUp className="h-5 w-5 text-blue-400" />,
     bonus: <Star className="h-5 w-5 text-pink-400" />,
@@ -122,7 +142,6 @@ export default function SalesScorecardDashboard() {
           <KpiCard title="Avg. Speed-to-Close" value={`${kpis.avgSpeedToClose} days`} icon={Clock} />
         </div>
 
-        {/* NEW: Sales Funnel & Health Section */}
         <div className="mb-8">
             <h2 className="text-xl font-semibold text-white mb-4">Sales Funnel & Health</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
@@ -196,6 +215,7 @@ export default function SalesScorecardDashboard() {
                   <li key={rep.id} className="p-4 flex items-center justify-between hover:bg-gray-700/30 transition-colors">
                     <div className="flex items-center">
                       <span className="text-lg font-bold text-gray-400 w-6">{index + 1}</span>
+                      {/* Using next/image is recommended, but for dummy data, img is fine. The warning is informational. */}
                       <img className="h-10 w-10 rounded-full ml-4" src={rep.avatar} alt={rep.name} />
                       <div className="ml-4">
                         <p className="font-semibold text-white">{rep.name}</p>
