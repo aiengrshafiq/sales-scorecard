@@ -4,12 +4,10 @@
 'use client'; // Tells Next.js to render this component in the browser.
 
 import React from 'react';
-// Corrected: Removed unused chart components to clean up build warnings
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
-// Corrected: Removed unused icon and added new ones
 import { Award, Target, TrendingUp, Clock, Users, Star, Zap, Percent, ShieldCheck, PhoneForwarded } from 'lucide-react';
 
-// --- TYPE DEFINITIONS (This is the main fix) ---
+// --- TYPE DEFINITIONS ---
 interface CardProps {
   children: React.ReactNode;
   className?: string;
@@ -29,13 +27,13 @@ interface HealthStatCardProps {
 }
 
 
-// --- DUMMY DATA (Updated with new metrics) ---
+// --- DUMMY DATA ---
 const dummyData = {
   kpis: {
     totalPoints: 8740,
     quarterlyTarget: 15000,
     dealsInPipeline: 76,
-    avgSpeedToClose: 18, // in days
+    avgSpeedToClose: 18,
   },
   salesHealth: {
     leadToContactedSameDay: 82,
@@ -69,7 +67,7 @@ const dummyData = {
   ],
 };
 
-// --- HELPER COMPONENTS (Now with explicit types) ---
+// --- HELPER COMPONENTS ---
 
 const Card: React.FC<CardProps> = ({ children, className = '' }) => (
   <div className={`bg-gray-800/50 border border-gray-700/50 rounded-xl shadow-lg backdrop-blur-sm ${className}`}>
@@ -215,7 +213,6 @@ export default function SalesScorecardDashboard() {
                   <li key={rep.id} className="p-4 flex items-center justify-between hover:bg-gray-700/30 transition-colors">
                     <div className="flex items-center">
                       <span className="text-lg font-bold text-gray-400 w-6">{index + 1}</span>
-                      {/* Using next/image is recommended, but for dummy data, img is fine. The warning is informational. */}
                       <img className="h-10 w-10 rounded-full ml-4" src={rep.avatar} alt={rep.name} />
                       <div className="ml-4">
                         <p className="font-semibold text-white">{rep.name}</p>
@@ -223,7 +220,13 @@ export default function SalesScorecardDashboard() {
                       </div>
                     </div>
                     <div className="text-right flex items-center">
-                        {rep.onStreak && <Zap className="h-4 w-4 text-yellow-400 mr-2" title="On a winning streak!" />}
+                        {/* --- THIS IS THE FIX --- */}
+                        {/* The correct way to add a tooltip is to wrap the icon in a span with a title attribute. */}
+                        {rep.onStreak && (
+                          <span title="On a winning streak!">
+                            <Zap className="h-4 w-4 text-yellow-400 mr-2" />
+                          </span>
+                        )}
                         <span className="text-lg font-bold text-indigo-400">{rep.points.toLocaleString()}</span>
                     </div>
                   </li>
