@@ -35,17 +35,11 @@ jobs:
           az containerapp update \
             --name sales-enforcer-api \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} \
-            --remove-env-vars APP_MODE \
-            --set-env-vars "APP_MODE=api" \
-            --command "" # This line explicitly clears the old startup command
+            --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
 
       - name: Deploy sales-enforcer-worker
         run: |
           az containerapp update \
             --name sales-enforcer-worker \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} \
-            --remove-env-vars APP_MODE \
-            --set-env-vars "APP_MODE=worker" \
-            --command "" # This line explicitly clears the old startup command
+            --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}

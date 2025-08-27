@@ -1,5 +1,6 @@
 # sales-enforcer/celery_worker.py
 import os
+import re
 from datetime import datetime
 from celery import Celery
 from dotenv import load_dotenv
@@ -11,9 +12,36 @@ import n8n_client
 
 load_dotenv()
 
-celery_app = Celery("tasks", broker=os.getenv("REDIS_URL"), backend=os.getenv("REDIS_URL"))
+# --- HELPER FUNCTION TO PARSE AZURE REDIS URL ---
+def parse_azure_redis_url(azure_url: str) -> str:
+    """Converts a complex Azure Redis connection string to a standard Celery broker URL."""
+    if not azure_url or not azure_url.startswith('redis-'):
+        # If it's not the expected Azure format (e.g., a local redis:// URL), return it as is.
+        return azure_url
 
-# --- Enhanced Helper Functions ---
+    try:
+        # Extract the host and the parameters part of the string
+        host, params = azure_url.split(',', 1)
+        # Find the password using a regular expression
+        password_match = re.search(r'password=([^,]+)', params)
+        password = password_match.group(1) if password_match else ''
+        # Construct the standard 'rediss://' URL for SSL connections
+        return f"rediss://:{password}@{host}"
+    except (ValueError, AttributeError):
+        print("Warning: Could not parse Azure Redis URL, falling back to the original value.")
+        return azure_url
+
+# --- CELERY APP INITIALIZATION ---
+# Get the raw URL from environment secrets
+raw_redis_url = os.getenv("REDIS_URL")
+# Parse it into a Celery-compatible format
+parsed_redis_url = parse_azure_redis_url(raw_redis_url)
+
+# Initialize the Celery app with the correctly formatted URL
+celery_app = Celery("tasks", broker=parsed_redis_url, backend=parsed_redis_url)
+
+
+# --- ENHANCED HELPER FUNCTIONS ---
 def check_compliance(stage_id: int, deal_data: dict) -> (bool, list):
     """Checks complex compliance rules (AND/OR, equals, not_empty)."""
     stage_rules = config.COMPLIANCE_RULES.get(stage_id)
@@ -76,7 +104,7 @@ def apply_bonuses(db_session, deal_data: dict, previous_data: dict):
         user_data = pipedrive_client.get_user(user_id)
         n8n_client.trigger_won_deal_alert(deal_data, user_data)
 
-# --- Main Webhook Processor ---
+# --- MAIN WEBHOOK PROCESSOR ---
 @celery_app.task
 def process_pipedrive_event(payload: dict):
     if not payload.get("current") or payload.get("event") != "updated.deal":
@@ -97,7 +125,6 @@ def process_pipedrive_event(payload: dict):
             if contract_signed and payment_taken:
                 pipedrive_client.update_deal(deal_id, {"status": "won"})
                 print(f"Deal {deal_id} automatically moved to WON.")
-                # The next webhook for the 'won' status will handle points
                 return {"status": "Deal automatically moved to WON."}
             if loss_reason_filled:
                 pipedrive_client.update_deal(deal_id, {"status": "lost"})
@@ -135,7 +162,7 @@ def process_pipedrive_event(payload: dict):
             db.add(DealStageEvent(deal_id=deal_id, stage_id=current_stage_id))
             points_to_add = current_stage.get("points", 0)
             db.add(PointsLedger(deal_id=deal_id, user_id=user_id, event_type=PointEventType.STAGE_ADVANCE, points=points_to_add, notes=f"Advanced to stage: {current_stage['name']}"))
-            apply_bonuses(db, current_data, previous_data) # Check bonuses on stage change too
+            apply_bonuses(db, current_data, previous_data)
             db.commit()
             return {"status": f"Processed stage progression to {current_stage['name']}."}
         else:
