@@ -29,37 +29,22 @@ jobs:
           docker build -t ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} .
           docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
 
-      - name: Build and push n8n image
-        run: |
-          cd n8n
-          docker build -t ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/n8n-custom:${{ github.sha }} .
-          docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/n8n-custom:${{ github.sha }}
-
       - name: Deploy sales-enforcer-api
         uses: azure/container-apps-deploy-action@v1
         with:
-          # --- CORRECTED PARAMETER NAMES ---
           containerAppName: sales-enforcer-api
           resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
-          containerAppEnvironment: ${{ secrets.CONTAINER_APP_ENV }}
+          # This is the correct way to pass advanced configuration
+          yamlConfigPath: ./sales-enforcer/.azure/api.yaml
+          # This replaces the image placeholder in the YAML file
           imageToDeploy: ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
-          command: "uvicorn main:app --host 0.0.0.0 --port 80"
-          
+
       - name: Deploy sales-enforcer-worker
         uses: azure/container-apps-deploy-action@v1
         with:
-          # --- CORRECTED PARAMETER NAMES ---
           containerAppName: sales-enforcer-worker
           resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
-          containerAppEnvironment: ${{ secrets.CONTAINER_APP_ENV }}
+          # This uses the worker-specific YAML configuration
+          yamlConfigPath: ./sales-enforcer/.azure/worker.yaml
+          # This replaces the image placeholder in the YAML file
           imageToDeploy: ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
-          # No 'command' needed here, it will use the Dockerfile's default CMD
-
-      - name: Deploy n8n-service
-        uses: azure/container-apps-deploy-action@v1
-        with:
-          # --- CORRECTED PARAMETER NAMES ---
-          containerAppName: n8n-service
-          resourceGroup: ${{ secrets.AZURE_RESOURCE_GROUP }}
-          containerAppEnvironment: ${{ secrets.CONTAINER_APP_ENV }}
-          imageToDeploy: ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/n8n-custom:${{ github.sha }}
