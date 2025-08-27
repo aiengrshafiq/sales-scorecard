@@ -35,11 +35,13 @@ jobs:
           az containerapp update \
             --name sales-enforcer-api \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
+            --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} \
+            --set-env-vars "APP_MODE=api"
 
       - name: Deploy sales-enforcer-worker
         run: |
           az containerapp update \
             --name sales-enforcer-worker \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
+            --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} \
+            --set-env-vars "APP_MODE=worker"
