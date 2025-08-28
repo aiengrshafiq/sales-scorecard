@@ -36,7 +36,7 @@ jobs:
             --name sales-enforcer-api \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
             --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} \
-            --set-env-vars "APP_MODE=api" \
+            --set-env-vars "APP_MODE=api" "FORCE_UPDATE=$(date +%s)" \
             --command "./entrypoint.sh" # This is the fix
 
       - name: Deploy sales-enforcer-worker
@@ -45,5 +45,5 @@ jobs:
             --name sales-enforcer-worker \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
             --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} \
-            --set-env-vars "APP_MODE=worker" \
+            --set-env-vars "APP_MODE=worker" "FORCE_UPDATE=$(date +%s)" \
             --command "./entrypoint.sh" # This is the fix
