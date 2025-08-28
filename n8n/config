@@ -1,12 +1,2 @@
 # n8n/config
-
-# This file explicitly tells n8n how to connect to the database.
-# It overrides any environment variables.
-
-DB_TYPE=postgresdb
-DB_POSTGRESDB_HOST=legalgpt.postgres.database.azure.com
-DB_POSTGRESDB_PORT=5432
-DB_POSTGRESDB_DATABASE=sales_scoreboard
-DB_POSTGRESDB_USER=n8n_user
-DB_POSTGRESDB_PASSWORD=n8nscorecard321
-DB_POSTGRESDB_SSL=true
+WEBHOOK_URL=https://n8n-service.orangeground-02804893.uaenorth.azurecontainerapps.io
