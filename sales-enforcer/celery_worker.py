@@ -30,7 +30,6 @@ def parse_azure_redis_url(azure_url: str) -> str:
 # --- CELERY APP INITIALIZATION ---
 raw_redis_url = os.getenv("REDIS_URL")
 parsed_redis_url = parse_azure_redis_url(raw_redis_url)
-
 celery_app = Celery("tasks", broker=parsed_redis_url, backend=parsed_redis_url)
 
 
@@ -38,8 +37,10 @@ celery_app = Celery("tasks", broker=parsed_redis_url, backend=parsed_redis_url)
 def check_compliance(stage_id: int, deal_data: dict) -> (bool, list):
     """Checks complex compliance rules (AND/OR, equals, not_empty)."""
     stage_rules = config.COMPLIANCE_RULES.get(stage_id)
-    if not stage_rules:
-        return True, []
+    if not stage_rules: return True, []
+
+    # Custom fields are nested in the new payload structure
+    custom_fields = deal_data.get('custom_fields', {})
 
     condition = stage_rules["condition"]
     rules = stage_rules["rules"]
@@ -49,12 +50,13 @@ def check_compliance(stage_id: int, deal_data: dict) -> (bool, list):
     for rule in rules:
         field_key = rule["field"]
         rule_type = rule["type"]
-        field_value = deal_data.get(field_key)
+        # Look for the field in the nested custom_fields object
+        field_value = custom_fields.get(field_key)
         rule_passed = False
 
         if rule_type == "not_empty" and field_value:
             rule_passed = True
-        elif rule_type == "equals" and field_value == rule["value"]:
+        elif rule_type == "equals" and str(field_value) == rule["value"]: # Cast to string for safety
             rule_passed = True
         
         if rule_passed:
@@ -62,27 +64,24 @@ def check_compliance(stage_id: int, deal_data: dict) -> (bool, list):
         else:
             failed_messages.append(rule["message"])
 
-    if condition == "AND" and passed_rules == len(rules):
-        return True, []
-    if condition == "OR" and passed_rules > 0:
-        return True, []
-
+    if condition == "AND" and passed_rules == len(rules): return True, []
+    if condition == "OR" and passed_rules > 0: return True, []
     return False, failed_messages
 
 def apply_bonuses(db_session, deal_data: dict, previous_data: dict):
     """Checks for and applies all relevant bonuses."""
-    deal_id, user_id = deal_data["id"], deal_data["user_id"]
+    deal_id, user_id = deal_data["id"], deal_data["owner_id"] # Use owner_id from the 'data' object
     
     if previous_data.get("stage_id") == 90:
-        add_date = deal_data.get("add_time", "").split(" ")[0]
-        update_date = deal_data.get("update_time", "").split(" ")[0]
+        add_date = deal_data.get("add_time", "").split("T")[0]
+        update_date = deal_data.get("update_time", "").split("T")[0]
         if add_date == update_date:
             points = config.POINT_CONFIG["bonus_lead_intake_same_day"]
             db_session.add(PointsLedger(deal_id=deal_id, user_id=user_id, event_type=PointEventType.BONUS_LEAD_INTAKE_SAME_DAY, points=points, notes="Bonus: Lead Intake same day."))
 
     if deal_data.get("status") == 'won' and not previous_data.get("status") == 'won':
-        add_time = datetime.fromisoformat(deal_data["add_time"])
-        won_time = datetime.fromisoformat(deal_data["won_time"])
+        add_time = datetime.fromisoformat(deal_data["add_time"].replace('Z', '+00:00'))
+        won_time = datetime.fromisoformat(deal_data["won_time"].replace('Z', '+00:00'))
         days_to_win = (won_time - add_time).days
         if days_to_win <= config.POINT_CONFIG["bonus_won_fast_days"]:
             points = config.POINT_CONFIG["bonus_won_fast_points"]
@@ -96,24 +95,25 @@ def apply_bonuses(db_session, deal_data: dict, previous_data: dict):
 # --- MAIN WEBHOOK PROCESSOR ---
 @celery_app.task
 def process_pipedrive_event(payload: dict):
-    # --- THIS IS THE FIX ---
-    # 1. Log the incoming payload so we can see exactly what Pipedrive sends.
     print(f"Received payload: {payload}")
 
-    # 2. Make the event check more flexible. We check for the presence of the 'current' object.
-    if not payload.get("current"):
-        event_name = payload.get("event", "unknown")
-        return {"status": f"Payload did not contain a 'current' object. Event was '{event_name}'. Skipping."}
-
-    current_data = payload["current"]
+    # --- THIS IS THE FIX ---
+    # Use the correct keys from the new payload structure
+    current_data = payload.get("data")
     previous_data = payload.get("previous", {})
-    deal_id, user_id = current_data["id"], current_data["user_id"]
+    meta_data = payload.get("meta", {})
+
+    if not current_data or meta_data.get("action") != "change":
+        return {"status": "Payload did not contain 'data' object or action was not 'change'. Skipping."}
+
+    deal_id, user_id = current_data["id"], current_data["owner_id"]
+    custom_fields = current_data.get('custom_fields', {})
     
     db = SessionLocal()
     try:
-        contract_signed = current_data.get(config.AUTOMATION_FIELDS["contract_signed"]) == "Yes"
-        payment_taken = current_data.get(config.AUTOMATION_FIELDS["payment_taken"]) == "Yes"
-        loss_reason_filled = current_data.get(config.AUTOMATION_FIELDS["loss_reason"])
+        contract_signed = custom_fields.get(config.AUTOMATION_FIELDS["contract_signed"]) == "Yes"
+        payment_taken = custom_fields.get(config.AUTOMATION_FIELDS["payment_taken"]) == "Yes"
+        loss_reason_filled = custom_fields.get(config.AUTOMATION_FIELDS["loss_reason"])
 
         if current_data["status"] == "open":
             if contract_signed and payment_taken:
