@@ -1,6 +1,0 @@
-# n8n/Dockerfile
-
-FROM n8nio/n8n:latest
-
-# Copy our custom config file into the container's .n8n directory
-COPY config /home/node/.n8n/

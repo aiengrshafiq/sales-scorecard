@@ -30,14 +30,6 @@ jobs:
           docker build -t ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }} .
           docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/sales-enforcer:${{ github.sha }}
 
-      # --- Build the new n8n image with the internal config file ---
-      - name: Build and push n8n image
-        run: |
-          cd n8n
-          docker build -t ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/n8n-custom:${{ github.sha }} .
-          docker push ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/n8n-custom:${{ github.sha }}
-      # --- END OF N8N BUILD SECTION ---
-
       - name: Deploy sales-enforcer-api
         run: |
           az containerapp update \
@@ -56,11 +48,11 @@ jobs:
             --set-env-vars "APP_MODE=worker" "FORCE_UPDATE=$(date +%s)" \
             --command "./entrypoint.sh"
             
-      # --- Deploy the new n8n image ---
       - name: Deploy n8n-service
         run: |
+          # This step now simply tells n8n to use the latest official image.
+          # The configuration is handled by the environment variables in Azure.
           az containerapp update \
             --name n8n-service \
             --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --image ${{ secrets.AZURE_CONTAINER_REGISTRY }}.azurecr.io/n8n-custom:${{ github.sha }}
-      # --- END OF N8N DEPLOY SECTION ---
+            --image docker.io/n8nio/n8n:latest
