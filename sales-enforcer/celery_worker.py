@@ -22,8 +22,6 @@ def parse_azure_redis_url(azure_url: str) -> str:
         host, params = azure_url.split(',', 1)
         password_match = re.search(r'password=([^,]+)', params)
         password = password_match.group(1) if password_match else ''
-        # --- THIS IS THE FIX ---
-        # Append the required ssl_cert_reqs parameter for Celery's result backend.
         return f"rediss://:{password}@{host}?ssl_cert_reqs=CERT_NONE"
     except (ValueError, AttributeError):
         print("Warning: Could not parse Azure Redis URL, falling back to the original value.")
@@ -98,8 +96,14 @@ def apply_bonuses(db_session, deal_data: dict, previous_data: dict):
 # --- MAIN WEBHOOK PROCESSOR ---
 @celery_app.task
 def process_pipedrive_event(payload: dict):
-    if not payload.get("current") or payload.get("event") != "updated.deal":
-        return {"status": "Not a deal update event, skipping."}
+    # --- THIS IS THE FIX ---
+    # 1. Log the incoming payload so we can see exactly what Pipedrive sends.
+    print(f"Received payload: {payload}")
+
+    # 2. Make the event check more flexible. We check for the presence of the 'current' object.
+    if not payload.get("current"):
+        event_name = payload.get("event", "unknown")
+        return {"status": f"Payload did not contain a 'current' object. Event was '{event_name}'. Skipping."}
 
     current_data = payload["current"]
     previous_data = payload.get("previous", {})
@@ -160,7 +164,6 @@ def process_pipedrive_event(payload: dict):
     finally:
         db.close()
 
-# Keep the apply_rotting_penalties task as it was, it does not need changes.
 @celery_app.task
 def apply_rotting_penalties():
     pass
