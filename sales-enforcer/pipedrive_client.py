@@ -74,3 +74,22 @@ def get_user(user_id: int):
     except requests.exceptions.RequestException as e:
         _handle_request_exception(e, f"get user {user_id}")
         return {}
+
+# Add this new function to sales-enforcer/pipedrive_client.py
+
+def get_rotted_deals():
+    """Fetches all deals currently marked as rotten by Pipedrive."""
+    url = f"{BASE_URL}/deals"
+    # Pipedrive's API uses a filter for rotten deals. The filter_id for "All rotten deals" is '2'.
+    params = {
+        "api_token": API_TOKEN,
+        "filter_id": 2
+    }
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        # The actual deal objects are in the 'data' key of the response
+        return response.json().get("data", []) or []
+    except requests.exceptions.RequestException as e:
+        _handle_request_exception(e, "get rotted deals")
+        return []

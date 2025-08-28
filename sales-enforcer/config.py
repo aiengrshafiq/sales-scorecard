@@ -79,3 +79,14 @@ AUTOMATION_FIELDS = {
     "payment_taken": "c61044a44d813064e799a96c88cb55bca465d04e",
     "loss_reason": "f7767455d77a063bc765e0b323813f513bcca2f9",
 }
+
+
+# Add this dictionary to sales-enforcer/config.py
+
+# --- Milestone Ranks ---
+# Points required to achieve each rank. The keys should be ordered from lowest to highest.
+MILESTONES = {
+    "Bronze": 1000,
+    "Silver": 2500,
+    "Gold": 5000,
+}

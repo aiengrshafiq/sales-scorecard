@@ -41,3 +41,13 @@ class DealStageEvent(Base):
     entered_at = Column(DateTime(timezone=True), server_default=func.now())
     
     # You can add a unique constraint later to ensure idempotency
+
+    # Add this new model to sales-enforcer/models.py
+
+class UserMilestone(Base):
+    __tablename__ = 'user_milestones'
+    
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    milestone_rank = Column(String, nullable=False)
+    achieved_at = Column(DateTime(timezone=True), server_default=func.now())

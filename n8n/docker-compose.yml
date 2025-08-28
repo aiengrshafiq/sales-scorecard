@@ -1,31 +1,6 @@
-# n8n/docker-compose.yml
-services:
-  n8n:
-    image: n8nio/n8n
-    container_name: n8n-scoreboard
-    restart: always
-    ports:
-      - "5678:5678"
-    environment:
-      - N8N_HOST=localhost
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=http
-      - NODE_ENV=development
-      
-      # --- Database Configuration (Forcing SSL Mode) ---
-      - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_HOST=legalgpt.postgres.database.azure.com
-      - DB_POSTGRESDB_PORT=5432
-      - DB_POSTGRESDB_DATABASE=sales_scoreboard
-      - DB_POSTGRESDB_USER=n8n_user
-      - DB_POSTGRESDB_PASSWORD=n8nscorecard321
-      
-      # This explicitly tells the underlying driver to require SSL.
-      - DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED=false
-      - DB_POSTGRESDB_SSL_REQUEST_CERT=true
-      
-    volumes:
-      - ./n8n_data:/home/node/.n8n
+# n8n/Dockerfile
 
-volumes:
-  n8n_data:
+FROM n8nio/n8n:latest
+
+# Copy our custom config file into the container's .n8n directory
+COPY config /home/node/.n8n/
