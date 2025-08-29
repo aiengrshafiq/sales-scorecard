@@ -48,11 +48,3 @@ jobs:
             --set-env-vars "APP_MODE=worker" "FORCE_UPDATE=$(date +%s)" \
             --command "./entrypoint.sh"
             
-      - name: Deploy n8n-service
-        run: |
-          # This step now simply tells n8n to use the latest official image.
-          # The configuration is handled by the environment variables in Azure.
-          az containerapp update \
-            --name n8n-service \
-            --resource-group ${{ secrets.AZURE_RESOURCE_GROUP }} \
-            --image docker.io/n8nio/n8n:latest

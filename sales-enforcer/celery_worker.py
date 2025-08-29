@@ -10,7 +10,7 @@ from database import SessionLocal
 from models import DealStageEvent, PointsLedger, PointEventType, UserMilestone
 import config
 import pipedrive_client
-import n8n_client
+import alert_client
 
 load_dotenv()
 
@@ -88,7 +88,7 @@ def apply_bonuses(db_session, deal_data: dict, previous_data: dict):
         db_session.add(PointsLedger(deal_id=deal_id, user_id=user_id, event_type=PointEventType.STAGE_ADVANCE, points=config.POINT_CONFIG["won_deal_points"], notes="Deal WON"))
         
         user_data = pipedrive_client.get_user(user_id)
-        n8n_client.trigger_won_deal_alert(deal_data, user_data)
+        alert_client.trigger_won_deal_alert(deal_data, user_data)
 
 # NEW: Function to check for and trigger milestone alerts
 def check_and_trigger_milestones(db_session, user_id: int):
@@ -108,7 +108,7 @@ def check_and_trigger_milestones(db_session, user_id: int):
             
             # Trigger the n8n alert
             user_data = pipedrive_client.get_user(user_id)
-            n8n_client.trigger_milestone_alert(user_data, rank)
+            alert_client.trigger_milestone_alert(user_data, rank)
             
             # We only want to trigger the highest new rank, so we break after the first one we find
             break
