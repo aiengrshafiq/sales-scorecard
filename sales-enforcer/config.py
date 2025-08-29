@@ -2,11 +2,10 @@
 
 """
 Central configuration for the Sales Scorecard.
--- Final production rules based on CEO feedback (2025-08-26) --
+-- Final production rules based on CEO feedback (2025-08-28) --
 """
 
 # --- Scorecard Points System ---
-# Official Stage IDs and Order from Pipedrive
 STAGES = {
     99: {"name": "Nurture Zone", "order": 1, "points": 0},
     90: {"name": "1. Lead Intake", "order": 2, "points": 10},
@@ -17,7 +16,6 @@ STAGES = {
     95: {"name": "6. Close (Card / BAMFAM)", "order": 7, "points": 100},
 }
 
-# Bonus points configuration
 POINT_CONFIG = {
     "won_deal_points": 200,
     "weekly_minimum": 150,
@@ -27,14 +25,10 @@ POINT_CONFIG = {
     "bonus_won_fast_points": 50,
 }
 
-# Stage order number from which a rotted deal can be revived.
 REVIVAL_MINIMUM_STAGE_ORDER = 5 # "4. Design Intake Completed"
 
 # --- Stage Compliance Checkpoints ---
-# You MUST replace these placeholder keys with your actual Pipedrive API keys.
-# To find a field's API key, go to Settings > Data fields, and click on the "..." for a field.
 COMPLIANCE_RULES = {
-    # Target Stage ID: { rules }
     91: { # Rules for entering '2. Qualification Completed'
         "condition": "AND",
         "rules": [
@@ -64,27 +58,28 @@ COMPLIANCE_RULES = {
         ]
     },
     95: { # Rules for entering '6. Close (Card / BAMFAM)'
-        "condition": "OR", # Note the OR condition here
+        "condition": "AND",
         "rules": [
-            {"field": "c61044a44d813064e799a96c88cb55bca465d04e", "type": "equals", "value": "Yes", "message": "Payment must be taken."},
-            {"field": "844ec4a1daff8bcec5600224c6021aff9550c862", "type": "not_empty", "message": "Final Decision Meeting must be booked."},
+            # Assumes you have custom fields for these as per the CEO's request
+            # {"field": "api_key_for_live_presentation_logged", "type": "equals", "value": "Yes", "message": "A live presentation must be logged."},
+            # {"field": "api_key_for_primary_objection", "type": "not_empty", "message": "At least one objection must be noted."},
+            {
+                "condition": "OR",
+                "rules": [
+                    {"field": "c61044a44d813064e799a96c88cb55bca465d04e", "type": "equals", "value": "Yes", "message": "Payment must be taken."},
+                    {"field": "844ec4a1daff8bcec5600224c6021aff9550c862", "type": "not_empty", "message": "Final Decision Meeting must be booked."},
+                ]
+            }
         ]
     },
 }
 
-# --- Automation Fields ---
-# These fields are used for automatic status changes (WON/LOST)
 AUTOMATION_FIELDS = {
     "contract_signed": "0ede563fbd2d22869b5c63a15ac1f1b8e4ddf610",
     "payment_taken": "c61044a44d813064e799a96c88cb55bca465d04e",
     "loss_reason": "f7767455d77a063bc765e0b323813f513bcca2f9",
 }
 
-
-# Add this dictionary to sales-enforcer/config.py
-
-# --- Milestone Ranks ---
-# Points required to achieve each rank. The keys should be ordered from lowest to highest.
 MILESTONES = {
     "Bronze": 1000,
     "Silver": 2500,
