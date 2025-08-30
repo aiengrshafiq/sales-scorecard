@@ -53,8 +53,10 @@ COMPLIANCE_RULES = {
     94: { # Rules for entering '5. Proposal Presentation / Buying Zone'
         "condition": "AND",
         "rules": [
-            {"field": "f7b50a98745a1a2ec32a92d4bcfb89244fc15f4b", "type": "equals", "value": "Yes", "message": "Design Fee must be paid ('Yes')."},
-            {"field": "6ee940cb2e7b5d2e1108ab76b2164771f8678558", "type": "equals", "value": "Yes", "message": "Decision-Makers for proposal must be confirmed ('Yes')."},
+            # {"field": "f7b50a98745a1a2ec32a92d4bcfb89244fc15f4b", "type": "equals", "value": "Yes", "message": "Design Fee must be paid ('Yes')."},
+            # {"field": "6ee940cb2e7b5d2e1108ab76b2164771f8678558", "type": "equals", "value": "Yes", "message": "Decision-Makers for proposal must be confirmed ('Yes')."},
+            {"field": "f7b50a98745a1a2ec32a92d4bcfb89244fc15f4b", "type": "not_empty",  "message": "Design Fee must be paid ('Yes')."},
+            {"field": "6ee940cb2e7b5d2e1108ab76b2164771f8678558", "type": "not_empty", "message": "Decision-Makers for proposal must be confirmed ('Yes')."},
         ]
     },
     95: { # Rules for entering '6. Close (Card / BAMFAM)'
@@ -66,7 +68,7 @@ COMPLIANCE_RULES = {
             {
                 "condition": "OR",
                 "rules": [
-                    {"field": "c61044a44d813064e799a96c88cb55bca465d04e", "type": "equals", "value": "Yes", "message": "Payment must be taken."},
+                    {"field": "c61044a44d813064e799a96c88cb55bca465d04e", "type": "not_empty", "message": "Payment must be taken."},
                     {"field": "844ec4a1daff8bcec5600224c6021aff9550c862", "type": "not_empty", "message": "Final Decision Meeting must be booked."},
                 ]
             }
