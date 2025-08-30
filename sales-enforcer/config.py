@@ -39,8 +39,8 @@ COMPLIANCE_RULES = {
     92: { # Rules for entering '3. Pre–Design Intake BAMFAM'
         "condition": "AND",
         "rules": [
-            {"field": "64cd1cfd01c9046629e178cefb5be2b690bea8a3", "type": "equals", "value": "Yes", "message": "Budget must be confirmed as 'Yes'."},
-            {"field": "6ee940cb2e7b5d2e1108ab76b2164771f8678558", "type": "equals", "value": "Yes", "message": "Decision-Maker(s) must be identified as 'Yes'."},
+            {"field": "64cd1cfd01c9046629e178cefb5be2b690bea8a3", "type": "not_empty", "message": "Budget must be confirmed as 'Yes'."},
+            {"field": "6ee940cb2e7b5d2e1108ab76b2164771f8678558", "type": "not_empty", "message": "Decision-Maker(s) must be identified as 'Yes'."},
             {"field": "307d3de4715ffcdb8e17cc26bea6b19607519b4e", "type": "not_empty", "message": "Deadline / Buying Window date must be set."},
         ]
     },
