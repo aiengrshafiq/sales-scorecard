@@ -53,8 +53,6 @@ COMPLIANCE_RULES = {
     94: { # Rules for entering '5. Proposal Presentation / Buying Zone'
         "condition": "AND",
         "rules": [
-            # {"field": "f7b50a98745a1a2ec32a92d4bcfb89244fc15f4b", "type": "equals", "value": "Yes", "message": "Design Fee must be paid ('Yes')."},
-            # {"field": "6ee940cb2e7b5d2e1108ab76b2164771f8678558", "type": "equals", "value": "Yes", "message": "Decision-Makers for proposal must be confirmed ('Yes')."},
             {"field": "f7b50a98745a1a2ec32a92d4bcfb89244fc15f4b", "type": "not_empty",  "message": "Design Fee must be paid ('Yes')."},
             {"field": "6ee940cb2e7b5d2e1108ab76b2164771f8678558", "type": "not_empty", "message": "Decision-Makers for proposal must be confirmed ('Yes')."},
         ]
