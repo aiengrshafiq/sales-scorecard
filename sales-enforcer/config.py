@@ -85,3 +85,16 @@ MILESTONES = {
     "Silver": 2500,
     "Gold": 5000,
 }
+
+# --- NEW: Dashboard Configuration ---
+# All settings related to the dashboard's data calculations.
+DASHBOARD_CONFIG = {
+    "quarterly_points_target": 20000, # Example target, can be changed anytime
+    "field_keys": {
+        # --- IMPORTANT: Ask the CEO for the API keys for these fields ---
+        "design_fee_paid": "f7b50a98745a1a2ec32a92d4bcfb89244fc15f4b", # Already known
+        "loss_reason": "f7767455d77a063bc765e0b323813f513bcca2f9",       # Already known
+        "first_activity": "api_key_for_first_activity_date", # Field for when the first call/meeting was logged
+        "proposal_date": "api_key_for_proposal_date" # Field for the date a proposal was sent/presented
+    }
+}
