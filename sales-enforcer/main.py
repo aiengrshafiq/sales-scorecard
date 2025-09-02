@@ -3,7 +3,8 @@ from fastapi import FastAPI, Request, Response, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, case, extract
-from datetime import datetime, timedelta
+# --- CRITICAL FIX #1: Import timezone ---
+from datetime import datetime, timedelta, timezone
 from collections import Counter
 import math
 
@@ -15,15 +16,13 @@ import config
 
 app = FastAPI()
 
-# --- CRITICAL FIX: DEFINITIVE CORS CONFIGURATION ---
-# This wildcard configuration is the most robust way to solve the CORS issue.
-# It tells the server to allow requests from any origin.
+# Definitive CORS Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods (GET, POST, etc.)
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # --- Database Dependency ---
@@ -36,7 +35,9 @@ def get_db():
 
 # --- Helper Functions ---
 def time_ago(dt: datetime) -> str:
-    now = datetime.utcnow()
+    """Converts a datetime object to a human-readable string like '2h ago'."""
+    # --- CRITICAL FIX #1: Use timezone-aware 'now' to match database timestamps ---
+    now = datetime.now(timezone.utc)
     diff = now - dt
     seconds = diff.total_seconds()
     if seconds < 60: return "Just now"
@@ -45,20 +46,19 @@ def time_ago(dt: datetime) -> str:
     return f"{diff.days}d ago"
 
 def get_current_quarter_dates():
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     current_quarter = math.ceil(now.month / 3)
     start_month = 3 * current_quarter - 2
     end_month = 3 * current_quarter
-    start_date = datetime(now.year, start_month, 1)
+    start_date = datetime(now.year, start_month, 1, tzinfo=timezone.utc)
     
-    # Correctly calculate last day of the quarter
     next_month_start_year = now.year
     next_month_start_month = end_month + 1
     if next_month_start_month > 12:
         next_month_start_month = 1
         next_month_start_year += 1
         
-    next_month_start = datetime(next_month_start_year, next_month_start_month, 1)
+    next_month_start = datetime(next_month_start_year, next_month_start_month, 1, tzinfo=timezone.utc)
     end_date = next_month_start - timedelta(days=1)
     
     quarter_name = f"Q{current_quarter} {now.year}"
@@ -87,7 +87,7 @@ def get_dashboard_data(db: Session = Depends(get_db)):
         "status": "won",
         "won_date_since": start_date.strftime('%Y-%m-%d')
     })
-    won_deals_this_quarter = [d for d in won_deals_this_quarter if d and d.get("won_time") and datetime.fromisoformat(d["won_time"].replace('Z', '')) <= end_date]
+    won_deals_this_quarter = [d for d in won_deals_this_quarter if d and d.get("won_time") and datetime.fromisoformat(d["won_time"].replace('Z', '')) <= end_date.replace(tzinfo=None)]
 
     total_days_to_close, deals_for_avg = 0, 0
     for deal in won_deals_this_quarter:
@@ -98,7 +98,7 @@ def get_dashboard_data(db: Session = Depends(get_db)):
             deals_for_avg += 1
     avg_speed_to_close = round(total_days_to_close / deals_for_avg, 1) if deals_for_avg > 0 else 0
 
-    # --- 2. Leaderboard (for the current quarter) ---
+    # --- 2. Leaderboard ---
     leaderboard_query = (
         db.query(
             PointsLedger.user_id,
@@ -120,19 +120,20 @@ def get_dashboard_data(db: Session = Depends(get_db)):
             "points": int(row.total_score or 0), "dealsWon": row.deals_won, "onStreak": False,
         })
 
-    # --- 3. Points Over Time (last 12 weeks for trend view) ---
+    # --- 3. Points Over Time ---
     points_by_week = db.query(
         extract('week', PointsLedger.created_at).label('week_number'),
         func.sum(PointsLedger.points).label('total_points')
-    ).filter(PointsLedger.created_at >= datetime.utcnow() - timedelta(weeks=12)).group_by('week_number').order_by('week_number').all()
+    ).filter(PointsLedger.created_at >= datetime.now(timezone.utc) - timedelta(weeks=12)).group_by('week_number').order_by('week_number').all()
     points_over_time = [{"week": f"W{int(r.week_number)}", "points": r.total_points} for r in points_by_week]
 
-    # --- 4. Recent Activity (not quarter-dependent) ---
+    # --- 4. Recent Activity ---
     recent_events = db.query(PointsLedger).order_by(desc(PointsLedger.created_at)).limit(5).all()
     type_map = {PointEventType.BONUS: "bonus", PointEventType.STAGE_ADVANCE: "stage"}
-    recent_activity = [{"id": entry.id, "type": "win" if "won" in entry.notes.lower() else type_map.get(entry.event_type, "stage"), "text": entry.notes, "time": time_ago(entry.created_at) } for entry in recent_events]
+    # The check for 'entry.notes' is a safeguard against rare cases where it might be None
+    recent_activity = [{"id": entry.id, "type": "win" if entry.notes and "won" in entry.notes.lower() else type_map.get(entry.event_type, "stage"), "text": entry.notes, "time": time_ago(entry.created_at) } for entry in recent_events]
 
-    # --- 5. Sales Health (based on all-time data for accurate conversion rates) ---
+    # --- 5. Sales Health ---
     qual_stage_id, proposal_stage_id = 91, 94
     deals_reached_qual = set(r[0] for r in db.query(DealStageEvent.deal_id).filter(DealStageEvent.stage_id == qual_stage_id).all())
     deals_reached_proposal = set(r[0] for r in db.query(DealStageEvent.deal_id).filter(DealStageEvent.stage_id == proposal_stage_id).all())
@@ -143,7 +144,8 @@ def get_dashboard_data(db: Session = Depends(get_db)):
     proposal_to_close_conversion = int((len(deals_reached_proposal.intersection(deals_won_ids)) / len(deals_reached_proposal)) * 100) if deals_reached_proposal else 0
 
     lost_deals = pipedrive_client.get_deals({"status": "lost", "limit": 250})
-    loss_key = config.DASHBOARD__CONFIG["field_keys"]["loss_reason"]
+    # --- PROACTIVE FIX: Corrected a typo from DASHBOARD__CONFIG to DASHBOARD_CONFIG ---
+    loss_key = config.DASHBOARD_CONFIG["field_keys"]["loss_reason"]
     reasons = [deal.get(loss_key) for deal in lost_deals if deal and deal.get(loss_key)]
     top_loss_reasons = [{"reason": r, "value": int((c / len(reasons)) * 100)} for r, c in Counter(reasons).most_common(3)] if reasons else []
 
