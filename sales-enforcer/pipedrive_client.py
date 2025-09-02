@@ -14,7 +14,19 @@ def _handle_request_exception(e: requests.exceptions.RequestException, context: 
     if e.response is not None:
         error_message += f" | Status: {e.response.status_code} | Response: {e.response.text}"
     print(error_message)
-    raise e
+    return None
+
+def get_deal(deal_id: int):
+    """Gets a single deal's full details from Pipedrive."""
+    url = f"{BASE_URL}/deals/{deal_id}"
+    params = {"api_token": API_TOKEN}
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        return response.json().get("data", {})
+    except requests.exceptions.RequestException as e:
+        _handle_request_exception(e, f"get deal {deal_id}")
+        return {}
 
 def get_user(user_id: int):
     """Gets user details from Pipedrive."""
@@ -28,22 +40,48 @@ def get_user(user_id: int):
         _handle_request_exception(e, f"get user {user_id}")
         return {}
 
-def get_rotted_deals():
-    """Fetches all deals currently marked as rotten by Pipedrive."""
+def get_deals(params: dict = None):
+    """
+    Fetches deals from Pipedrive with optional filters and handles pagination.
+    """
+    if params is None:
+        params = {}
+    
     url = f"{BASE_URL}/deals"
-    # Pipedrive's API uses a filter for rotten deals. The filter_id for "All rotten deals" is '2'.
-    params = {
-        "api_token": API_TOKEN,
-        "filter_id": 2
-    }
-    try:
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        # The actual deal objects are in the 'data' key of the response
-        return response.json().get("data", []) or []
-    except requests.exceptions.RequestException as e:
-        _handle_request_exception(e, "get rotted deals")
-        return []
+    params["api_token"] = API_TOKEN
+    
+    all_deals = []
+    start = 0
+    limit = 500
+
+    while True:
+        params["start"] = start
+        params["limit"] = limit
+        try:
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            data = response.json().get("data", [])
+            
+            if not data:
+                break
+            
+            all_deals.extend(data)
+            
+            pagination = response.json().get("additional_data", {}).get("pagination", {})
+            if not pagination or not pagination.get("more_items_in_collection"):
+                break
+                
+            start += len(data)
+        
+        except requests.exceptions.RequestException as e:
+            _handle_request_exception(e, f"get deals with params {params}")
+            return []
+    
+    return all_deals
+
+def get_rotted_deals():
+    """Fetches all deals currently marked as rotten."""
+    return get_deals({"filter_id": 2})
 
 def update_deal(deal_id: int, payload: dict):
     """Updates a deal in Pipedrive."""

@@ -18,6 +18,7 @@ interface KpiData {
   quarterlyTarget: number;
   dealsInPipeline: number;
   avgSpeedToClose: number;
+  quarterName: string; // Added to receive the dynamic quarter name
 }
 interface LeaderboardRep {
   id: number;
@@ -100,7 +101,7 @@ const ErrorDisplay = ({ message }: { message: string }) => (
 // --- MAIN DASHBOARD COMPONENT ---
 export default function SalesScorecardDashboard() {
   const { data, error, isLoading } = useSWR<DashboardData>(`${API_BASE_URL}/api/dashboard-data`, fetcher, {
-      refreshInterval: 15000 // Refresh data every 15 seconds
+      refreshInterval: 30000 // Refresh data every 30 seconds
   });
 
   if (isLoading) return <div className="min-h-screen bg-gray-900 flex items-center justify-center"><LoadingSpinner /></div>;
@@ -108,7 +109,7 @@ export default function SalesScorecardDashboard() {
   if (!data) return <div className="min-h-screen bg-gray-900 p-8"><ErrorDisplay message="No data available." /></div>;
 
   const { kpis, leaderboard, pointsOverTime, recentActivity, salesHealth } = data;
-  const quotaAttainment = ((kpis.totalPoints / kpis.quarterlyTarget) * 100).toFixed(1);
+  const quotaAttainment = kpis.quarterlyTarget > 0 ? ((kpis.totalPoints / kpis.quarterlyTarget) * 100).toFixed(1) : "0.0";
 
   const activityIcons: { [key: string]: React.ReactNode } = {
     win: <Award className="h-5 w-5 text-yellow-400" />,
@@ -123,22 +124,23 @@ export default function SalesScorecardDashboard() {
         <header className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center">
           <div>
             <h1 className="text-3xl font-bold text-white tracking-tight">Sales Scorecard</h1>
-            <p className="text-gray-400 mt-1">Q3 2025 Performance Overview</p>
+            {/* UPDATED: Dynamic quarter name */}
+            <p className="text-gray-400 mt-1">{kpis.quarterName} Performance Overview</p>
           </div>
           <div className="text-sm text-gray-500 mt-2 sm:mt-0">Last updated: {new Date().toLocaleTimeString()}</div>
         </header>
 
         {/* KPI Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <KpiCard title="Total Points (Quarter)" value={kpis.totalPoints.toLocaleString()} icon={Award} change="+12% MoM" />
+          <KpiCard title="Total Points (Quarter)" value={kpis.totalPoints.toLocaleString()} icon={Award} />
           <KpiCard title="Quarterly Target" value={kpis.quarterlyTarget.toLocaleString()} icon={Target} />
           <KpiCard title="Deals in Pipeline" value={kpis.dealsInPipeline} icon={Users} />
-          <KpiCard title="Avg. Speed-to-Close" value={`${kpis.avgSpeedToClose} days`} icon={Clock} />
+          <KpiCard title="Avg. Speed-to-Close (Quarter)" value={`${kpis.avgSpeedToClose} days`} icon={Clock} />
         </div>
 
         {/* Sales Health */}
         <div className="mb-8">
-            <h2 className="text-xl font-semibold text-white mb-4">Sales Funnel & Health</h2>
+            <h2 className="text-xl font-semibold text-white mb-4">Sales Funnel & Health (All-Time)</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
                 <HealthStatCard title="Same-Day Contact" value={salesHealth.leadToContactedSameDay} icon={PhoneForwarded} />
                 <HealthStatCard title="Qual to Design Fee" value={salesHealth.qualToDesignFee} icon={Percent} />
@@ -166,7 +168,7 @@ export default function SalesScorecardDashboard() {
           <div className="lg:col-span-2 space-y-8">
               {/* Points Chart */}
               <Card className="p-6">
-                <h2 className="text-lg font-semibold text-white mb-4">Points Generated (Weekly)</h2>
+                <h2 className="text-lg font-semibold text-white mb-4">Points Generated (Weekly Trend)</h2>
                 <div className="h-80">
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart data={pointsOverTime} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
@@ -199,7 +201,7 @@ export default function SalesScorecardDashboard() {
           <div className="space-y-8">
               {/* Leaderboard */}
               <Card>
-                <div className="p-6 border-b border-gray-700"><h2 className="text-lg font-semibold text-white">Leaderboard</h2></div>
+                <div className="p-6 border-b border-gray-700"><h2 className="text-lg font-semibold text-white">Leaderboard (Quarterly)</h2></div>
                 <ul className="divide-y divide-gray-700">
                   {leaderboard.map((rep, index) => (
                     <li key={rep.id} className="p-4 flex items-center justify-between hover:bg-gray-700/30 transition-colors">
