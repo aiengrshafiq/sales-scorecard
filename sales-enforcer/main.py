@@ -15,12 +15,20 @@ import config
 
 app = FastAPI()
 
-# --- CORS Configuration ---
+# --- CORS Configuration (THIS IS THE ONLY UPDATED SECTION) ---
 origins = [
-    "https://delightful-ocean-0f9808600.1.azurestaticapps.net",
-    "http://localhost:3000",
+    "https://delightful-ocean-0f9808600.1.azurestaticapps.net", # Your frontend URL
+    "https://delightful-ocean-0f9808600.1.azurestaticapps.net/", # Added with trailing slash for robustness
+    "http://localhost:3000", # For local development
 ]
-app.add_middleware(CORSMiddleware, allow_origins=origins, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "OPTIONS"], # Be explicit with methods
+    allow_headers=["*"],
+)
 
 # --- Database Dependency ---
 def get_db():
@@ -79,12 +87,10 @@ def get_dashboard_data(db: Session = Depends(get_db)):
     total_points = db.query(func.sum(PointsLedger.points)).filter(PointsLedger.created_at.between(start_date, end_date)).scalar() or 0
     deals_in_pipeline = len(pipedrive_client.get_deals({"status": "open"}))
     
-    # PERFORMANCE FIX: Filter by date in the API call itself
     won_deals_this_quarter = pipedrive_client.get_deals({
         "status": "won",
         "won_date_since": start_date.strftime('%Y-%m-%d')
     })
-    # This second filter is a safeguard in case the API returns deals won slightly outside the start date but within the same day.
     won_deals_this_quarter = [d for d in won_deals_this_quarter if d and d.get("won_time") and datetime.fromisoformat(d["won_time"].replace('Z', '')) <= end_date]
 
     total_days_to_close, deals_for_avg = 0, 0
@@ -131,7 +137,7 @@ def get_dashboard_data(db: Session = Depends(get_db)):
     recent_activity = [{"id": entry.id, "type": "win" if "won" in entry.notes.lower() else type_map.get(entry.event_type, "stage"), "text": entry.notes, "time": time_ago(entry.created_at) } for entry in recent_events]
 
     # --- 5. Sales Health (based on all-time data for accurate conversion rates) ---
-    qual_stage_id, proposal_stage_id = 91, 94 # Assuming stage 94 is proposal
+    qual_stage_id, proposal_stage_id = 91, 94
     deals_reached_qual = set(r[0] for r in db.query(DealStageEvent.deal_id).filter(DealStageEvent.stage_id == qual_stage_id).all())
     deals_reached_proposal = set(r[0] for r in db.query(DealStageEvent.deal_id).filter(DealStageEvent.stage_id == proposal_stage_id).all())
     
