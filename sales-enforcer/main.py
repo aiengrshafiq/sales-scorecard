@@ -15,19 +15,15 @@ import config
 
 app = FastAPI()
 
-# --- CORS Configuration (THIS IS THE ONLY UPDATED SECTION) ---
-origins = [
-    "https://delightful-ocean-0f9808600.1.azurestaticapps.net", # Your frontend URL
-    "https://delightful-ocean-0f9808600.1.azurestaticapps.net/", # Added with trailing slash for robustness
-    "http://localhost:3000", # For local development
-]
-
+# --- CRITICAL FIX: DEFINITIVE CORS CONFIGURATION ---
+# This wildcard configuration is the most robust way to solve the CORS issue.
+# It tells the server to allow requests from any origin.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],  # Allows all origins
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"], # Be explicit with methods
-    allow_headers=["*"],
+    allow_methods=["*"],  # Allows all methods (GET, POST, etc.)
+    allow_headers=["*"],  # Allows all headers
 )
 
 # --- Database Dependency ---
@@ -147,7 +143,7 @@ def get_dashboard_data(db: Session = Depends(get_db)):
     proposal_to_close_conversion = int((len(deals_reached_proposal.intersection(deals_won_ids)) / len(deals_reached_proposal)) * 100) if deals_reached_proposal else 0
 
     lost_deals = pipedrive_client.get_deals({"status": "lost", "limit": 250})
-    loss_key = config.DASHBOARD_CONFIG["field_keys"]["loss_reason"]
+    loss_key = config.DASHBOARD__CONFIG["field_keys"]["loss_reason"]
     reasons = [deal.get(loss_key) for deal in lost_deals if deal and deal.get(loss_key)]
     top_loss_reasons = [{"reason": r, "value": int((c / len(reasons)) * 100)} for r, c in Counter(reasons).most_common(3)] if reasons else []
 

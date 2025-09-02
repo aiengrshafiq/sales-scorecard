@@ -16,6 +16,9 @@ Base = declarative_base()
 
 class PointEventType(enum.Enum):
     STAGE_ADVANCE = "STAGE_ADVANCE"
+    # --- THIS IS THE ONLY CHANGE ---
+    # Added a general BONUS type to fix errors and simplify bonus logging.
+    BONUS = "BONUS"
     BONUS_LEAD_INTAKE_SAME_DAY = "BONUS_LEAD_INTAKE_SAME_DAY"
     BONUS_WON_FAST = "BONUS_WON_FAST"
     DEAL_ROTTED_SUSPENSION = "DEAL_ROTTED_SUSPENSION"
@@ -39,10 +42,6 @@ class DealStageEvent(Base):
     deal_id = Column(Integer, nullable=False, index=True)
     stage_id = Column(Integer, nullable=False)
     entered_at = Column(DateTime(timezone=True), server_default=func.now())
-    
-    # You can add a unique constraint later to ensure idempotency
-
-    # Add this new model to sales-enforcer/models.py
 
 class UserMilestone(Base):
     __tablename__ = 'user_milestones'

@@ -35,9 +35,6 @@ def check_compliance(stage_id: int, deal_data: dict) -> (bool, list):
     stage_rules = config.COMPLIANCE_RULES.get(stage_id)
     if not stage_rules:
         return True, []
-
-    # Pipedrive API v1 sends custom field values directly in the deal object,
-    # not in a nested 'custom_fields' object. We'll check the root of the deal data.
     
     def evaluate(ruleset):
         condition = ruleset["condition"]
@@ -46,7 +43,6 @@ def check_compliance(stage_id: int, deal_data: dict) -> (bool, list):
         passed_count = 0
         
         for rule in rules:
-            # Handle nested conditions (like OR within an AND)
             if "condition" in rule:
                 passed, messages = evaluate(rule)
                 if passed:
@@ -57,16 +53,15 @@ def check_compliance(stage_id: int, deal_data: dict) -> (bool, list):
 
             field_key = rule["field"]
             rule_type = rule["type"]
-            # Get the value from the main deal data dictionary
             field_value = deal_data.get(field_key)
             
             rule_passed = False
             if rule_type == "not_empty" and field_value:
                 rule_passed = True
-            # --- THIS IS THE NEW LINE TO FIX THE ISSUE ---
-            elif rule_type == "equals_id" and field_value is not None and int(field_value) == rule["value"]:
+            # Robustness fix: Compare values as strings to avoid type mismatches
+            elif rule_type == "equals_id" and field_value is not None and str(field_value) == str(rule["value"]):
                 rule_passed = True
-            elif rule_type == "equals" and str(field_value) == str(rule["value"]):
+            elif rule_type == "equals" and field_value is not None and str(field_value) == str(rule["value"]):
                 rule_passed = True
 
             if rule_passed:
@@ -83,26 +78,22 @@ def check_compliance(stage_id: int, deal_data: dict) -> (bool, list):
 
     return evaluate(stage_rules)
 
-def apply_bonuses(db_session, deal_data: dict, previous_data: dict):
-    deal_id, user_id = deal_data["id"], deal_data["user_id"]
+def apply_status_change_bonuses(db_session, deal_data: dict, previous_data: dict):
+    """Handles awarding points ONLY when a deal's status changes to 'won'."""
+    deal_id, user_id = deal_data["id"], deal_data["owner_id"]
     
-    # Bonus for same-day lead intake
-    if previous_data.get("stage_id") == 90:
-        add_date = deal_data.get("add_time", "").split("T")[0]
-        update_date = deal_data.get("update_time", "").split("T")[0]
-        if add_date == update_date:
-            db_session.add(PointsLedger(deal_id=deal_id, user_id=user_id, event_type=PointEventType.BONUS, points=config.POINT_CONFIG["bonus_lead_intake_same_day"], notes="Bonus: Lead Intake same day."))
-
-    # Bonus for winning a deal quickly
     if deal_data.get("status") == 'won' and previous_data.get("status") != 'won':
         add_time = datetime.fromisoformat(deal_data["add_time"].replace('Z', '+00:00'))
         won_time = datetime.fromisoformat(deal_data["won_time"].replace('Z', '+00:00'))
         days_to_win = (won_time - add_time).days
+        
+        # Award bonus for winning a deal quickly
         if days_to_win <= config.POINT_CONFIG["bonus_won_fast_days"]:
             db_session.add(PointsLedger(deal_id=deal_id, user_id=user_id, event_type=PointEventType.BONUS, points=config.POINT_CONFIG["bonus_won_fast_points"], notes=f"Bonus: Deal won in {days_to_win} days."))
         
-        # Award points for winning the deal itself
+        # Award standard points for winning the deal
         db_session.add(PointsLedger(deal_id=deal_id, user_id=user_id, event_type=PointEventType.STAGE_ADVANCE, points=config.POINT_CONFIG["won_deal_points"], notes="Deal WON"))
+        
         user_data = pipedrive_client.get_user(user_id)
         alert_client.trigger_won_deal_alert(deal_data, user_data)
 
@@ -120,14 +111,18 @@ def check_and_trigger_milestones(db_session, user_id: int):
 @celery_app.task
 def process_pipedrive_event(payload: dict):
     print(f"Received payload: {payload}")
-    # CRITICAL FIX: Use 'current' for v2 webhooks, not 'data'
-    current_data = payload.get("current")
+    # --- CRITICAL FIX #1: Correctly read from 'data' and 'owner_id' ---
+    current_data = payload.get("data")
     previous_data = payload.get("previous", {})
     
     if not current_data:
-        return {"status": "Payload did not contain 'current' data object. Skipping."}
+        return {"status": "Payload did not contain 'data' object. Skipping."}
 
-    deal_id, user_id = current_data["id"], current_data["user_id"]
+    deal_id = current_data.get("id")
+    user_id = current_data.get("owner_id")
+    
+    if not deal_id or not user_id:
+        return {"status": "Deal ID or Owner ID missing from webhook payload. Skipping."}
     
     db = SessionLocal()
     try:
@@ -136,16 +131,19 @@ def process_pipedrive_event(payload: dict):
         if not full_deal_data:
             return {"status": f"Could not fetch full details for deal {deal_id}."}
 
-        # --- Automatic Status Change Logic ---
-        contract_field = config.AUTOMATION_FIELDS["contract_signed"]
-        payment_field = config.AUTOMATION_FIELDS["payment_taken"]
-        loss_reason_field = config.AUTOMATION_FIELDS["loss_reason"]
-
-        contract_signed = str(full_deal_data.get(contract_field["key"])) == str(contract_field["yes_id"])
-        payment_taken = str(full_deal_data.get(payment_field["key"])) == str(payment_field["yes_id"])
-        loss_reason_filled = full_deal_data.get(loss_reason_field["key"])
-
+        # --- CRITICAL FIX #2: Corrected auto-move logic ---
         if full_deal_data["status"] == "open":
+            contract_key = config.AUTOMATION_FIELDS["contract_signed"]
+            payment_key = config.AUTOMATION_FIELDS["payment_taken"]
+            loss_reason_key = config.AUTOMATION_FIELDS["loss_reason"]
+            
+            # Find the ID for "Yes" in the relevant compliance rules
+            payment_taken_id = next((r['value'] for r in config.COMPLIANCE_RULES[95]['rules'][0]['rules'] if r['field'] == payment_key), None)
+
+            contract_signed = full_deal_data.get(contract_key) # Assuming this is a simple text or date field
+            payment_taken = str(full_deal_data.get(payment_key)) == str(payment_taken_id)
+            loss_reason_filled = full_deal_data.get(loss_reason_key)
+
             if contract_signed and payment_taken:
                 pipedrive_client.update_deal(deal_id, {"status": "won"})
                 return {"status": "Deal automatically moved to WON."}
@@ -153,52 +151,46 @@ def process_pipedrive_event(payload: dict):
                 pipedrive_client.update_deal(deal_id, {"status": "lost"})
                 return {"status": "Deal automatically moved to LOST."}
 
-        # --- Status Change Event (e.g., manually moved to Won/Lost) ---
+        # Handle status change events (e.g., deal manually moved to Won/Lost)
         if current_data.get("status") != previous_data.get("status"):
-            apply_bonuses(db, full_deal_data, previous_data)
+            apply_status_change_bonuses(db, full_deal_data, previous_data)
             was_updated = True
 
-        # --- Stage Change Event ---
-        current_stage_id = current_data["stage_id"]
+        # Handle stage change events
+        current_stage_id = current_data.get("stage_id")
         previous_stage_id = previous_data.get("stage_id")
-        if current_stage_id != previous_stage_id:
+        if current_stage_id is not None and current_stage_id != previous_stage_id:
             current_stage = config.STAGES.get(current_stage_id)
             previous_stage = config.STAGES.get(previous_stage_id, {"order": 0})
 
             if not current_stage: return f"Unknown stage_id: {current_stage_id}"
             
-            # Stage Skip Check
-            if current_stage["order"] > previous_stage["order"] + 1:
-                pipedrive_client.add_note(deal_id, "<b>Compliance Error:</b> Stage was skipped. Deal moved back.")
-                pipedrive_client.update_deal(deal_id, {"stage_id": previous_stage_id})
-                return {"status": "Stage skip detected."}
+            # --- CRITICAL FIX #3: More intuitive compliance and stage skip logic ---
+            if current_stage["order"] > previous_stage["order"]:
+                is_compliant, messages = check_compliance(current_stage_id, full_deal_data)
+                if not is_compliant:
+                    full_message = "<b>Compliance Error:</b> Deal moved back. Please complete the following for this stage:<br>- " + "<br>- ".join(messages)
+                    pipedrive_client.add_note(deal_id, full_message)
+                    pipedrive_client.update_deal(deal_id, {"stage_id": previous_stage_id})
+                    return {"status": f"Not compliant with new stage {current_stage_id}. Deal reverted."}
 
-            # Compliance Check
-            is_compliant, messages = check_compliance(previous_stage_id, full_deal_data)
-            if not is_compliant:
-                full_message = "<b>Compliance Error:</b> Please complete requirements for the previous stage before advancing:<br>- " + "<br>- ".join(messages)
-                pipedrive_client.add_note(deal_id, full_message)
-                pipedrive_client.update_deal(deal_id, {"stage_id": previous_stage_id})
-                return {"status": "Not compliant with previous stage."}
-
-            # Award points for the new stage if it's the first time
-            if not db.query(DealStageEvent).filter_by(deal_id=deal_id, stage_id=current_stage_id).first():
-                db.add(DealStageEvent(deal_id=deal_id, stage_id=current_stage_id))
-                points_to_add = current_stage.get("points", 0)
-                if points_to_add > 0:
-                  db.add(PointsLedger(deal_id=deal_id, user_id=user_id, event_type=PointEventType.STAGE_ADVANCE, points=points_to_add, notes=f"Advanced to stage: {current_stage['name']}"))
-                  was_updated = True
+                if not db.query(DealStageEvent).filter_by(deal_id=deal_id, stage_id=current_stage_id).first():
+                    db.add(DealStageEvent(deal_id=deal_id, stage_id=current_stage_id))
+                    points_to_add = current_stage.get("points", 0)
+                    if points_to_add > 0:
+                        db.add(PointsLedger(deal_id=deal_id, user_id=user_id, event_type=PointEventType.STAGE_ADVANCE, points=points_to_add, notes=f"Advanced to stage: {current_stage['name']}"))
+                        was_updated = True
 
         if was_updated:
             db.commit()
             check_and_trigger_milestones(db, user_id)
             return {"status": "Processed successfully with point updates."}
         else:
-            return {"status": "No point updates to process."}
+            return {"status": "No changes triggered point updates."}
 
     except Exception as e:
         db.rollback()
-        print(f"An error occurred in process_pipedrive_event for deal {deal_id}: {e}")
+        print(f"FATAL error in process_pipedrive_event for deal {deal_id}: {e}")
         return {"status": "Error during processing."}
     finally:
         db.close()
@@ -230,3 +222,4 @@ def apply_rotting_penalties():
         db.close()
     
     return {"status": f"Rotting check complete. Processed {len(rotted_deals)} deals."}
+

@@ -14,6 +14,7 @@ def _handle_request_exception(e: requests.exceptions.RequestException, context: 
     if e.response is not None:
         error_message += f" | Status: {e.response.status_code} | Response: {e.response.text}"
     print(error_message)
+    # Returning None is a clearer signal of failure than an empty dict
     return None
 
 def get_deal(deal_id: int):
@@ -23,10 +24,11 @@ def get_deal(deal_id: int):
     try:
         response = requests.get(url, params=params)
         response.raise_for_status()
-        return response.json().get("data", {})
+        return response.json().get("data", None) # Return None if 'data' key is missing
     except requests.exceptions.RequestException as e:
-        _handle_request_exception(e, f"get deal {deal_id}")
-        return {}
+        # --- THIS IS THE ONLY CHANGE ---
+        # On a network or API error, return None to indicate failure.
+        return _handle_request_exception(e, f"get deal {deal_id}")
 
 def get_user(user_id: int):
     """Gets user details from Pipedrive."""
@@ -117,3 +119,4 @@ def add_task(deal_id: int, user_id: int, subject: str):
         return response.json()
     except requests.exceptions.RequestException as e:
         _handle_request_exception(e, f"add task to deal {deal_id}")
+
