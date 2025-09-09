@@ -3,6 +3,7 @@
 import React from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
+import Image from 'next/image';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { Award, Target, TrendingUp, Clock, Users, Star, Zap, Percent, ShieldCheck, PhoneForwarded, ArrowRight, BookOpen } from 'lucide-react';
 
@@ -216,7 +217,8 @@ export default function SalesScorecardDashboard() {
                     <li key={rep.id} className="p-4 flex items-center justify-between hover:bg-gray-700/30 transition-colors">
                       <div className="flex items-center">
                         <span className="text-lg font-bold text-gray-400 w-6">{index + 1}</span>
-                        <img className="h-10 w-10 rounded-full ml-4" src={rep.avatar} alt={rep.name} />
+                       
+                        <Image className="rounded-full ml-4" src={rep.avatar} alt={rep.name} width={40} height={40} />
                         <div className="ml-4">
                           <p className="font-semibold text-white">{rep.name}</p>
                           <p className="text-sm text-gray-400">{rep.dealsWon} deals won</p>

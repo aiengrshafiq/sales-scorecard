@@ -9,7 +9,6 @@ import { ArrowLeft, AlertCircle, Phone, Mail, ChevronsRight, Briefcase, BarChart
 const API_BASE_URL = "https://sales-enforcer-api.orangeground-02804893.uaenorth.azurecontainerapps.io";
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
-// Helper to format date to YYYY-MM-DD for API
 const formatDateForAPI = (date: Date) => {
     return date.toISOString().split('T')[0];
 };
@@ -21,6 +20,13 @@ interface SalesUser { id: number; name: string; }
 interface StageSummary { stage_name: string; deal_count: number; }
 interface ReportSummary { total_deals_created: number; stage_breakdown: StageSummary[]; }
 interface WeeklyReportResponse { summary: ReportSummary; deals: WeeklyDeal[]; }
+
+// ✅ NEW: Create a specific type for the filters state
+interface ReportFiltersState {
+  start_date: string;
+  end_date: string;
+  userId: string;
+}
 
 // --- UI COMPONENTS ---
 const Card = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
@@ -67,7 +73,8 @@ const DealRow = ({ deal }: { deal: WeeklyDeal }) => {
     );
 };
 
-const ReportFilters = ({ filters, onFiltersChange }: { filters: any, onFiltersChange: (newFilters: any) => void }) => {
+// ✅ FIXED: Replaced 'any' with the specific 'ReportFiltersState' type
+const ReportFilters = ({ filters, onFiltersChange }: { filters: ReportFiltersState, onFiltersChange: (newFilters: ReportFiltersState) => void }) => {
     const { data: users } = useSWR<SalesUser[]>(`${API_BASE_URL}/api/users`, fetcher);
 
     const handleDateChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -102,13 +109,12 @@ const ReportFilters = ({ filters, onFiltersChange }: { filters: any, onFiltersCh
 };
 
 export default function WeeklyReportPage() {
-    const [filters, setFilters] = useState({
+    const [filters, setFilters] = useState<ReportFiltersState>({ // Added type to useState
         start_date: formatDateForAPI(new Date(new Date().setDate(new Date().getDate() - 6))),
         end_date: formatDateForAPI(new Date()),
         userId: 'all'
     });
 
-    // Build the URL with query parameters for SWR
     const queryParams = new URLSearchParams({
         start_date: filters.start_date,
         end_date: filters.end_date,
