@@ -1,11 +1,11 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime, timedelta, timezone, date
+from datetime import datetime, date
 import asyncio
 
 import pipedrive_client
-from main import ensure_timezone_aware, time_ago
+from utils import ensure_timezone_aware, time_ago  # ✅ CHANGED: Import from utils.py
 
 # Create a new router object
 router = APIRouter()
@@ -43,14 +43,14 @@ async def get_weekly_report(user_id: Optional[int] = None):
     now = datetime.now(timezone.utc)
     seven_days_ago = now - timedelta(days=7)
     STUCK_DAYS_THRESHOLD = 5
-    SALES_FLOW_PIPELINE_ID = 11  # The ID for the "Sales Flow" pipeline
+    SALES_FLOW_PIPELINE_ID = 11
 
     semaphore = asyncio.Semaphore(10)
 
     params = {
         "status": "open",
         "add_time_since": seven_days_ago.strftime('%Y-%m-%d %H:%M:%S'),
-        "pipeline_id": SALES_FLOW_PIPELINE_ID,  # ✅ FIX: Filter by the correct pipeline
+        "pipeline_id": SALES_FLOW_PIPELINE_ID,
     }
     if user_id:
         params["user_id"] = user_id

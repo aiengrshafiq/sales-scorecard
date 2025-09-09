@@ -5,7 +5,6 @@ from sqlalchemy import func, desc, case, extract
 from datetime import datetime, timedelta, timezone, date
 from collections import Counter
 import math
-from typing import Optional
 from pydantic import BaseModel
 import asyncio
 
@@ -14,11 +13,11 @@ from database import SessionLocal
 from models import PointsLedger, DealStageEvent, PointEventType
 import pipedrive_client
 import config
-from routers import reports as reports_router # ✅ IMPORT the new report router
+from routers import reports as reports_router
+from utils import ensure_timezone_aware, time_ago # ✅ CHANGED: Import from utils.py
 
 app = FastAPI()
 
-# Definitive CORS Configuration
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -26,13 +25,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-# ✅ INCLUDE the router from reports.py
-# All paths in reports.py will now be available under the /api prefix
 app.include_router(reports_router.router, prefix="/api")
 
-
 # --- Pydantic Models ---
-# The report-specific models have been moved to routers/reports.py
 class User(BaseModel):
     id: int
     name: str
@@ -46,24 +41,7 @@ def get_db():
         db.close()
 
 # --- Helper Functions ---
-# These are needed by both main.py and reports.py, so we keep them here.
-def ensure_timezone_aware(dt: datetime) -> datetime:
-    """Ensures a datetime object is timezone-aware, assuming UTC if naive."""
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
-
-def time_ago(dt: datetime) -> str:
-    """Converts a datetime object to a human-readable string like '2h ago'."""
-    if not dt: return "N/A"
-    now = datetime.now(timezone.utc)
-    dt_aware = ensure_timezone_aware(dt)
-    diff = now - dt_aware
-    seconds = diff.total_seconds()
-    if seconds < 60: return "Just now"
-    if seconds < 3600: return f"{int(seconds / 60)}m ago"
-    if seconds < 86400: return f"{int(seconds / 3600)}h ago"
-    return f"{diff.days}d ago"
+# ✅ REMOVED: `ensure_timezone_aware` and `time_ago` are now in utils.py
 
 def get_current_quarter_dates():
     now = datetime.now(timezone.utc)
@@ -100,7 +78,6 @@ async def get_sales_users():
     users = await pipedrive_client.get_all_users_async()
     return [{"id": user["id"], "name": user["name"]} for user in users if user]
 
-# ✅ REMOVED: The entire get_weekly_report function and its models are now in routers/reports.py
 
 @app.get("/api/dashboard-data", tags=["Dashboard"])
 def get_dashboard_data(db: Session = Depends(get_db)):
