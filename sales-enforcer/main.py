@@ -3,10 +3,11 @@ from fastapi import FastAPI, Request, Response, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc, case, extract
-# --- CRITICAL FIX #1: Import timezone ---
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from collections import Counter
 import math
+from typing import Optional
+from pydantic import BaseModel
 
 from celery_worker import process_pipedrive_event
 from database import SessionLocal
@@ -25,6 +26,34 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# --- Pydantic Models for new endpoints ---
+class User(BaseModel):
+    id: int
+    name: str
+
+class ActivityDetail(BaseModel):
+    id: int
+    subject: str
+    type: str
+    done: bool
+    due_date: Optional[date]
+    add_time: datetime
+    owner_name: str
+
+class WeeklyDealReportItem(BaseModel):
+    id: int
+    title: str
+    owner_name: str
+    owner_id: int
+    stage_name: str
+    value: str
+    stage_age_days: int
+    is_stuck: bool
+    stuck_reason: str
+    last_activity_formatted: str
+    activities: list[ActivityDetail]
+
+
 # --- Database Dependency ---
 def get_db():
     db = SessionLocal()
@@ -36,7 +65,7 @@ def get_db():
 # --- Helper Functions ---
 def time_ago(dt: datetime) -> str:
     """Converts a datetime object to a human-readable string like '2h ago'."""
-    # --- CRITICAL FIX #1: Use timezone-aware 'now' to match database timestamps ---
+    if not dt: return "N/A"
     now = datetime.now(timezone.utc)
     diff = now - dt
     seconds = diff.total_seconds()
@@ -74,6 +103,92 @@ async def pipedrive_webhook(request: Request):
     payload = await request.json()
     process_pipedrive_event.delay(payload)
     return Response(status_code=200)
+
+@app.get("/api/users", response_model=list[User])
+def get_sales_users():
+    """Endpoint to get a list of sales users for filtering."""
+    users = pipedrive_client.get_all_users()
+    return [{"id": user["id"], "name": user["name"]} for user in users if user]
+
+@app.get("/api/weekly-report", response_model=list[WeeklyDealReportItem])
+def get_weekly_report(user_id: Optional[int] = None):
+    """
+    Generates a report of deals created in the last 7 days, including
+    stage aging, activities, and identifying stuck deals.
+    """
+    now = datetime.now(timezone.utc)
+    seven_days_ago = now - timedelta(days=7)
+    STUCK_DAYS_THRESHOLD = 5
+
+    params = {
+        "status": "open",
+        "add_time_since": seven_days_ago.strftime('%Y-%m-%d %H:%M:%S'),
+    }
+    if user_id:
+        params["user_id"] = user_id
+
+    deals = pipedrive_client.get_deals(params)
+    if not deals:
+        return []
+
+    all_stages = pipedrive_client.get_all_stages()
+    stage_map = {stage['id']: stage['name'] for stage in all_stages} if all_stages else {}
+    
+    report_items = []
+    for deal in filter(None, deals):
+        activities_raw = pipedrive_client.get_deal_activities(deal["id"])
+        activities = []
+        last_activity_time = None
+
+        if activities_raw:
+            activities_raw.sort(key=lambda x: x.get('add_time', '1970-01-01T00:00:00Z'), reverse=True)
+            last_activity_time = datetime.fromisoformat(activities_raw[0]["add_time"].replace('Z', '+00:00'))
+            
+            for act in activities_raw[:5]:
+                 if not all(k in act for k in ['id', 'add_time']): continue
+                 activities.append(ActivityDetail(
+                    id=act['id'],
+                    subject=act.get('subject', 'No Subject'),
+                    type=act.get('type', 'task'),
+                    done=act.get('done', False),
+                    due_date=act.get('due_date'),
+                    add_time=datetime.fromisoformat(act["add_time"].replace('Z', '+00:00')),
+                    owner_name=act.get('owner_name', 'Unknown')
+                ))
+
+        stage_age_days = 0
+        if deal.get("stage_change_time"):
+            stage_change_time = datetime.fromisoformat(deal["stage_change_time"].replace('Z', '+00:00'))
+            stage_age_days = (now - stage_change_time).days
+
+        is_stuck = False
+        stuck_reason = ""
+        if last_activity_time:
+            days_since_activity = (now - last_activity_time).days
+            if days_since_activity > STUCK_DAYS_THRESHOLD:
+                is_stuck = True
+                stuck_reason = f"No activity for {days_since_activity} days."
+        elif stage_age_days > STUCK_DAYS_THRESHOLD:
+            is_stuck = True
+            stuck_reason = f"In stage for {stage_age_days} days with no activities logged."
+
+        owner = deal.get("user_id") or {}
+        report_item = WeeklyDealReportItem(
+            id=deal["id"],
+            title=deal.get("title", "Untitled Deal"),
+            owner_name=owner.get("name", "Unknown Owner"),
+            owner_id=owner.get("id", 0),
+            stage_name=stage_map.get(deal["stage_id"], "Unknown Stage"),
+            value=f"{deal.get('currency', '$')} {deal.get('value', 0):,}",
+            stage_age_days=stage_age_days,
+            is_stuck=is_stuck,
+            stuck_reason=stuck_reason,
+            last_activity_formatted=time_ago(last_activity_time),
+            activities=activities
+        )
+        report_items.append(report_item)
+    return report_items
+
 
 @app.get("/api/dashboard-data")
 def get_dashboard_data(db: Session = Depends(get_db)):
@@ -130,7 +245,6 @@ def get_dashboard_data(db: Session = Depends(get_db)):
     # --- 4. Recent Activity ---
     recent_events = db.query(PointsLedger).order_by(desc(PointsLedger.created_at)).limit(5).all()
     type_map = {PointEventType.BONUS: "bonus", PointEventType.STAGE_ADVANCE: "stage"}
-    # The check for 'entry.notes' is a safeguard against rare cases where it might be None
     recent_activity = [{"id": entry.id, "type": "win" if entry.notes and "won" in entry.notes.lower() else type_map.get(entry.event_type, "stage"), "text": entry.notes, "time": time_ago(entry.created_at) } for entry in recent_events]
 
     # --- 5. Sales Health ---
@@ -144,7 +258,6 @@ def get_dashboard_data(db: Session = Depends(get_db)):
     proposal_to_close_conversion = int((len(deals_reached_proposal.intersection(deals_won_ids)) / len(deals_reached_proposal)) * 100) if deals_reached_proposal else 0
 
     lost_deals = pipedrive_client.get_deals({"status": "lost", "limit": 250})
-    # --- PROACTIVE FIX: Corrected a typo from DASHBOARD__CONFIG to DASHBOARD_CONFIG ---
     loss_key = config.DASHBOARD_CONFIG["field_keys"]["loss_reason"]
     reasons = [deal.get(loss_key) for deal in lost_deals if deal and deal.get(loss_key)]
     top_loss_reasons = [{"reason": r, "value": int((c / len(reasons)) * 100)} for r, c in Counter(reasons).most_common(3)] if reasons else []
@@ -155,4 +268,3 @@ def get_dashboard_data(db: Session = Depends(get_db)):
         "salesHealth": { "leadToContactedSameDay": 82, "qualToDesignFee": qual_to_proposal_conversion, "designFeeCompliance": 95, "proposalToClose": proposal_to_close_conversion, "topLossReasons": top_loss_reasons, },
     }
     return dashboard_data
-

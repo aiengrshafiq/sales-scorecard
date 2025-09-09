@@ -14,7 +14,6 @@ def _handle_request_exception(e: requests.exceptions.RequestException, context: 
     if e.response is not None:
         error_message += f" | Status: {e.response.status_code} | Response: {e.response.text}"
     print(error_message)
-    # Returning None is a clearer signal of failure than an empty dict
     return None
 
 def get_deal(deal_id: int):
@@ -24,10 +23,8 @@ def get_deal(deal_id: int):
     try:
         response = requests.get(url, params=params)
         response.raise_for_status()
-        return response.json().get("data", None) # Return None if 'data' key is missing
+        return response.json().get("data", None)
     except requests.exceptions.RequestException as e:
-        # --- THIS IS THE ONLY CHANGE ---
-        # On a network or API error, return None to indicate failure.
         return _handle_request_exception(e, f"get deal {deal_id}")
 
 def get_user(user_id: int):
@@ -41,6 +38,43 @@ def get_user(user_id: int):
     except requests.exceptions.RequestException as e:
         _handle_request_exception(e, f"get user {user_id}")
         return {}
+
+def get_all_users():
+    """Gets all active users from Pipedrive."""
+    url = f"{BASE_URL}/users"
+    params = {"api_token": API_TOKEN}
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        data = response.json().get("data", [])
+        return [user for user in data if user.get("active_flag")] if data else []
+    except requests.exceptions.RequestException as e:
+        _handle_request_exception(e, "get all users")
+        return []
+
+def get_all_stages():
+    """Gets all deal stages from Pipedrive."""
+    url = f"{BASE_URL}/stages"
+    params = {"api_token": API_TOKEN}
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        return response.json().get("data", [])
+    except requests.exceptions.RequestException as e:
+        _handle_request_exception(e, "get all stages")
+        return []
+
+def get_deal_activities(deal_id: int):
+    """Fetches all activities associated with a specific deal."""
+    url = f"{BASE_URL}/activities"
+    params = {"api_token": API_TOKEN, "deal_id": deal_id, "limit": 100}
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        return response.json().get("data", [])
+    except requests.exceptions.RequestException as e:
+        _handle_request_exception(e, f"get activities for deal {deal_id}")
+        return []
 
 def get_deals(params: dict = None):
     """
@@ -72,7 +106,7 @@ def get_deals(params: dict = None):
             pagination = response.json().get("additional_data", {}).get("pagination", {})
             if not pagination or not pagination.get("more_items_in_collection"):
                 break
-                
+            
             start += len(data)
         
         except requests.exceptions.RequestException as e:
@@ -119,4 +153,3 @@ def add_task(deal_id: int, user_id: int, subject: str):
         return response.json()
     except requests.exceptions.RequestException as e:
         _handle_request_exception(e, f"add task to deal {deal_id}")
-

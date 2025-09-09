@@ -3,22 +3,22 @@
 
 'use client'; // This component will be rendered on the client side
 
-import React from 'react';
+import React, { useState } from 'react';
 import useSWR from 'swr';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
-import { Award, Target, TrendingUp, Clock, Users, Star, Zap, Percent, ShieldCheck, PhoneForwarded } from 'lucide-react';
+import { Award, Target, TrendingUp, Clock, Users, Star, Zap, Percent, ShieldCheck, PhoneForwarded, AlertCircle, Phone, Mail, ChevronsRight } from 'lucide-react';
 
 // --- API Configuration ---
 const API_BASE_URL = "https://sales-enforcer-api.orangeground-02804893.uaenorth.azurecontainerapps.io";
 const fetcher = (url: string) => fetch(url).then((res) => res.json());
 
-// --- TYPE DEFINITIONS for our API data ---
+// --- TYPE DEFINITIONS ---
 interface KpiData {
   totalPoints: number;
   quarterlyTarget: number;
   dealsInPipeline: number;
   avgSpeedToClose: number;
-  quarterName: string; // Added to receive the dynamic quarter name
+  quarterName: string;
 }
 interface LeaderboardRep {
   id: number;
@@ -53,6 +53,36 @@ interface DashboardData {
     salesHealth: SalesHealthData;
 }
 
+// --- NEW TYPES FOR WEEKLY REPORT ---
+interface ActivityDetail {
+  id: number;
+  subject: string;
+  type: string;
+  done: boolean;
+  add_time: string;
+  owner_name: string;
+}
+
+interface WeeklyDeal {
+  id: number;
+  title: string;
+  owner_name: string;
+  owner_id: number;
+  stage_name: string;
+  value: string;
+  stage_age_days: number;
+  is_stuck: boolean;
+  stuck_reason: string;
+  last_activity_formatted: string;
+  activities: ActivityDetail[];
+}
+
+interface SalesUser {
+    id: number;
+    name: string;
+}
+
+
 // --- HELPER & UI COMPONENTS ---
 const Card = ({ children, className = '' }: { children: React.ReactNode; className?: string }) => (
   <div className={`bg-gray-800/50 border border-gray-700/50 rounded-xl shadow-lg backdrop-blur-sm ${className}`}>
@@ -60,7 +90,7 @@ const Card = ({ children, className = '' }: { children: React.ReactNode; classNa
   </div>
 );
 
-const KpiCard = ({ title, value, icon: Icon, change }: { title: string; value: string | number; icon: React.ElementType; change?: string }) => (
+const KpiCard = ({ title, value, icon: Icon }: { title: string; value: string | number; icon: React.ElementType }) => (
   <Card className="p-5">
     <div className="flex items-center justify-between">
       <p className="text-sm font-medium text-gray-400">{title}</p>
@@ -68,7 +98,6 @@ const KpiCard = ({ title, value, icon: Icon, change }: { title: string; value: s
     </div>
     <div className="mt-2 flex items-baseline">
       <p className="text-3xl font-bold text-white">{value}</p>
-      {change && <p className="ml-2 text-sm font-semibold text-green-400">{change}</p>}
     </div>
   </Card>
 );
@@ -98,10 +127,137 @@ const ErrorDisplay = ({ message }: { message: string }) => (
     </Card>
 );
 
+// --- WEEKLY REPORT COMPONENT ---
+
+const ActivityIcon = ({ type }: { type: string }) => {
+    switch (type) {
+        case 'call': return <Phone className="h-4 w-4 text-green-400 flex-shrink-0" />;
+        case 'email': return <Mail className="h-4 w-4 text-blue-400 flex-shrink-0" />;
+        case 'task': return <ChevronsRight className="h-4 w-4 text-purple-400 flex-shrink-0" />;
+        default: return <ChevronsRight className="h-4 w-4 text-gray-400 flex-shrink-0" />;
+    }
+};
+
+const DealRow = ({ deal }: { deal: WeeklyDeal }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+
+    return (
+        <>
+            <tr onClick={() => setIsExpanded(!isExpanded)} className="border-b border-gray-700 hover:bg-gray-700/50 cursor-pointer transition-colors">
+                <td className="px-4 py-3 align-top">
+                    <div className="font-medium text-white">{deal.title}</div>
+                    <div className="text-sm text-gray-400">{deal.owner_name}</div>
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-300 align-top">{deal.stage_name}</td>
+                <td className="px-4 py-3 font-mono text-white align-top">{deal.value}</td>
+                <td className="px-4 py-3 align-top">
+                    <span className="inline-flex items-center rounded-md bg-gray-600/50 px-2 py-1 text-xs font-medium text-gray-300 ring-1 ring-inset ring-gray-500/10">
+                        {deal.stage_age_days} days
+                    </span>
+                </td>
+                <td className="px-4 py-3 text-sm text-gray-400 align-top">{deal.last_activity_formatted}</td>
+                <td className="px-4 py-3 align-top">
+                    {deal.is_stuck && (
+                        <span title={deal.stuck_reason} className="inline-flex items-center gap-x-1.5 rounded-full bg-red-900/80 px-2 py-1 text-xs font-medium text-red-300">
+                            <AlertCircle className="h-3 w-3" />
+                            Stuck
+                        </span>
+                    )}
+                </td>
+            </tr>
+            {isExpanded && (
+                <tr className="bg-gray-800/50">
+                    <td colSpan={6} className="p-4">
+                        <h4 className="font-semibold text-sm text-white mb-2">Recent Activities ({deal.activities.length})</h4>
+                        {deal.activities.length > 0 ? (
+                            <ul className="space-y-2">
+                                {deal.activities.map(act => (
+                                    <li key={act.id} className="flex items-center text-sm gap-2">
+                                        <ActivityIcon type={act.type} />
+                                        <span className="text-gray-300 flex-grow">{act.subject}</span>
+                                        <span className="text-xs text-gray-500 text-right flex-shrink-0">{new Date(act.add_time).toLocaleDateString()} by {act.owner_name}</span>
+                                    </li>
+                                ))}
+                            </ul>
+                        ) : (
+                            <p className="text-sm text-gray-500">No activities found for this deal.</p>
+                        )}
+                    </td>
+                </tr>
+            )}
+        </>
+    );
+};
+
+
+const WeeklyReport = () => {
+    const [selectedUserId, setSelectedUserId] = useState<string>('all');
+    
+    const { data: users } = useSWR<SalesUser[]>(`${API_BASE_URL}/api/users`, fetcher);
+
+    const reportUrl = selectedUserId === 'all' 
+        ? `${API_BASE_URL}/api/weekly-report` 
+        : `${API_BASE_URL}/api/weekly-report?user_id=${selectedUserId}`;
+    const { data: deals, error: dealsError, isLoading: dealsLoading } = useSWR<WeeklyDeal[]>(reportUrl, fetcher);
+
+    return (
+        <Card className="mb-8">
+            <div className="p-6 border-b border-gray-700 flex flex-col sm:flex-row justify-between items-start sm:items-center">
+                <div>
+                    <h2 className="text-xl font-semibold text-white">Weekly Report (Last 7 Days)</h2>
+                    <p className="text-gray-400 text-sm mt-1">Newly created deals and their current status.</p>
+                </div>
+                <div className="mt-4 sm:mt-0">
+                    <select
+                        value={selectedUserId}
+                        onChange={(e) => setSelectedUserId(e.target.value)}
+                        className="bg-gray-700/80 border border-gray-600 rounded-md shadow-sm py-2 px-3 text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                    >
+                        <option value="all">All Salespersons</option>
+                        {users && users.map(user => (
+                            <option key={user.id} value={user.id}>{user.name}</option>
+                        ))}
+                    </select>
+                </div>
+            </div>
+            <div className="overflow-x-auto">
+                {dealsLoading && <div className="p-8 text-center text-gray-400">Loading report...</div>}
+                {dealsError && <div className="p-8 text-center text-red-400">Failed to load weekly report.</div>}
+                {deals && (
+                    <table className="w-full text-left">
+                        <thead className="bg-gray-800/60 text-xs text-gray-400 uppercase tracking-wider">
+                            <tr>
+                                <th className="px-4 py-3 font-medium">Deal / Owner</th>
+                                <th className="px-4 py-3 font-medium">Current Stage</th>
+                                <th className="px-4 py-3 font-medium">Value</th>
+                                <th className="px-4 py-3 font-medium">Time in Stage</th>
+                                <th className="px-4 py-3 font-medium">Last Activity</th>
+                                <th className="px-4 py-3 font-medium">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-800">
+                            {deals.length > 0 ? (
+                                deals.map(deal => <DealRow key={deal.id} deal={deal} />)
+                            ) : (
+                                <tr>
+                                    <td colSpan={6} className="text-center py-8 text-gray-500">
+                                        No new deals created in the last 7 days for the selected user.
+                                    </td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                )}
+            </div>
+        </Card>
+    );
+};
+
+
 // --- MAIN DASHBOARD COMPONENT ---
 export default function SalesScorecardDashboard() {
   const { data, error, isLoading } = useSWR<DashboardData>(`${API_BASE_URL}/api/dashboard-data`, fetcher, {
-      refreshInterval: 30000 // Refresh data every 30 seconds
+      refreshInterval: 30000
   });
 
   if (isLoading) return <div className="min-h-screen bg-gray-900 flex items-center justify-center"><LoadingSpinner /></div>;
@@ -124,11 +280,15 @@ export default function SalesScorecardDashboard() {
         <header className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center">
           <div>
             <h1 className="text-3xl font-bold text-white tracking-tight">Sales Scorecard</h1>
-            {/* UPDATED: Dynamic quarter name */}
             <p className="text-gray-400 mt-1">{kpis.quarterName} Performance Overview</p>
           </div>
           <div className="text-sm text-gray-500 mt-2 sm:mt-0">Last updated: {new Date().toLocaleTimeString()}</div>
         </header>
+
+        {/* ======================================= */}
+        {/* NEW WEEKLY REPORT SECTION ADDED HERE    */}
+        {/* ======================================= */}
+        <WeeklyReport />
 
         {/* KPI Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
