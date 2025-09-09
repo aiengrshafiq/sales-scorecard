@@ -215,7 +215,7 @@ async def get_deals_async(params: dict = None):
 async def get_deal_activities_async(deal_id: int):
     """Async: Fetches all activities associated with a specific deal."""
     url = f"{BASE_URL}/activities"
-    params = {"api_token": API_TOKEN, "deal_id": deal_id, "limit": 100}
+    params = {"api_token": API_TOKEN, "deal_id": deal_id, "limit": 10}
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, params=params)
