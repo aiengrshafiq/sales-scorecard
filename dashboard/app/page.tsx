@@ -1,7 +1,6 @@
-// You need to install these dependencies:
-// npm install swr recharts lucide-react
+// page.tsx
 
-'use client'; // This component will be rendered on the client side
+'use client'; 
 
 import React, { useState } from 'react';
 import useSWR from 'swr';
@@ -53,7 +52,6 @@ interface DashboardData {
     salesHealth: SalesHealthData;
 }
 
-// --- NEW TYPES FOR WEEKLY REPORT ---
 interface ActivityDetail {
   id: number;
   subject: string;
@@ -198,6 +196,8 @@ const WeeklyReport = () => {
     const reportUrl = selectedUserId === 'all' 
         ? `${API_BASE_URL}/api/weekly-report` 
         : `${API_BASE_URL}/api/weekly-report?user_id=${selectedUserId}`;
+    
+    // This hook fetches the weekly report data ONCE and does not auto-refresh.
     const { data: deals, error: dealsError, isLoading: dealsLoading } = useSWR<WeeklyDeal[]>(reportUrl, fetcher);
 
     return (
@@ -257,7 +257,8 @@ const WeeklyReport = () => {
 // --- MAIN DASHBOARD COMPONENT ---
 export default function SalesScorecardDashboard() {
   const { data, error, isLoading } = useSWR<DashboardData>(`${API_BASE_URL}/api/dashboard-data`, fetcher, {
-      refreshInterval: 30000
+      // ✅ CHANGED: Refresh interval increased from 30 seconds to 5 minutes (300,000 ms)
+      refreshInterval: 600000 
   });
 
   if (isLoading) return <div className="min-h-screen bg-gray-900 flex items-center justify-center"><LoadingSpinner /></div>;
@@ -284,10 +285,7 @@ export default function SalesScorecardDashboard() {
           </div>
           <div className="text-sm text-gray-500 mt-2 sm:mt-0">Last updated: {new Date().toLocaleTimeString()}</div>
         </header>
-
-        {/* ======================================= */}
-        {/* NEW WEEKLY REPORT SECTION ADDED HERE    */}
-        {/* ======================================= */}
+        
         <WeeklyReport />
 
         {/* KPI Grid */}
