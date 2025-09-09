@@ -63,11 +63,21 @@ def get_db():
         db.close()
 
 # --- Helper Functions ---
+
+# 🛠️ NEW HELPER FUNCTION TO PREVENT TIMEZONE ERRORS
+def ensure_timezone_aware(dt: datetime) -> datetime:
+    """Ensures a datetime object is timezone-aware, assuming UTC if naive."""
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
 def time_ago(dt: datetime) -> str:
     """Converts a datetime object to a human-readable string like '2h ago'."""
     if not dt: return "N/A"
     now = datetime.now(timezone.utc)
-    diff = now - dt
+    # Ensure dt is aware before comparison
+    dt_aware = ensure_timezone_aware(dt)
+    diff = now - dt_aware
     seconds = diff.total_seconds()
     if seconds < 60: return "Just now"
     if seconds < 3600: return f"{int(seconds / 60)}m ago"
@@ -142,23 +152,30 @@ def get_weekly_report(user_id: Optional[int] = None):
 
         if activities_raw:
             activities_raw.sort(key=lambda x: x.get('add_time', '1970-01-01T00:00:00Z'), reverse=True)
-            last_activity_time = datetime.fromisoformat(activities_raw[0]["add_time"].replace('Z', '+00:00'))
+            # ✅ FIX APPLIED HERE
+            raw_last_activity_time = datetime.fromisoformat(activities_raw[0]["add_time"].replace('Z', '+00:00'))
+            last_activity_time = ensure_timezone_aware(raw_last_activity_time)
             
             for act in activities_raw[:5]:
                  if not all(k in act for k in ['id', 'add_time']): continue
+                 # ✅ FIX APPLIED HERE
+                 raw_add_time = datetime.fromisoformat(act["add_time"].replace('Z', '+00:00'))
+                 add_time = ensure_timezone_aware(raw_add_time)
                  activities.append(ActivityDetail(
                     id=act['id'],
                     subject=act.get('subject', 'No Subject'),
                     type=act.get('type', 'task'),
                     done=act.get('done', False),
                     due_date=act.get('due_date'),
-                    add_time=datetime.fromisoformat(act["add_time"].replace('Z', '+00:00')),
+                    add_time=add_time,
                     owner_name=act.get('owner_name', 'Unknown')
                 ))
 
         stage_age_days = 0
         if deal.get("stage_change_time"):
-            stage_change_time = datetime.fromisoformat(deal["stage_change_time"].replace('Z', '+00:00'))
+            # ✅ FIX APPLIED HERE - THIS WAS THE LINE CAUSING THE CRASH
+            raw_stage_change_time = datetime.fromisoformat(deal["stage_change_time"].replace('Z', '+00:00'))
+            stage_change_time = ensure_timezone_aware(raw_stage_change_time)
             stage_age_days = (now - stage_change_time).days
 
         is_stuck = False
@@ -202,13 +219,18 @@ def get_dashboard_data(db: Session = Depends(get_db)):
         "status": "won",
         "won_date_since": start_date.strftime('%Y-%m-%d')
     })
-    won_deals_this_quarter = [d for d in won_deals_this_quarter if d and d.get("won_time") and datetime.fromisoformat(d["won_time"].replace('Z', '')) <= end_date.replace(tzinfo=None)]
+    # ✅ FIX APPLIED HERE for robust filtering
+    won_deals_this_quarter = [
+        d for d in won_deals_this_quarter 
+        if d and d.get("won_time") and ensure_timezone_aware(datetime.fromisoformat(d["won_time"].replace('Z', '+00:00'))) <= end_date
+    ]
 
     total_days_to_close, deals_for_avg = 0, 0
     for deal in won_deals_this_quarter:
         if deal.get("add_time") and deal.get("won_time"):
-            add_time = datetime.fromisoformat(deal["add_time"].replace('Z', ''))
-            won_time = datetime.fromisoformat(deal["won_time"].replace('Z', ''))
+            # ✅ FIX APPLIED HERE
+            add_time = ensure_timezone_aware(datetime.fromisoformat(deal["add_time"].replace('Z', '+00:00')))
+            won_time = ensure_timezone_aware(datetime.fromisoformat(deal["won_time"].replace('Z', '+00:00')))
             total_days_to_close += (won_time - add_time).days
             deals_for_avg += 1
     avg_speed_to_close = round(total_days_to_close / deals_for_avg, 1) if deals_for_avg > 0 else 0
