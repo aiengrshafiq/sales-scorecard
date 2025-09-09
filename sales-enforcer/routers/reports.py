@@ -1,11 +1,11 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime, date
+from datetime import datetime, timedelta, timezone, date  # ✅ FIXED: Added timedelta and timezone
 import asyncio
 
 import pipedrive_client
-from utils import ensure_timezone_aware, time_ago  # ✅ CHANGED: Import from utils.py
+from utils import ensure_timezone_aware, time_ago
 
 # Create a new router object
 router = APIRouter()
