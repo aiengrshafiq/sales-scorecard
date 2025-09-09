@@ -1,12 +1,18 @@
 # sales-enforcer/pipedrive_client.py
 import os
 import requests
+import httpx  # Import httpx for the new async functions
 from dotenv import load_dotenv
 
 load_dotenv()
 
 API_TOKEN = os.getenv("PIPEDRIVE_API_TOKEN")
 BASE_URL = "https://api.pipedrive.com/v1"
+
+# ===================================================================
+# ORIGINAL SYNCHRONOUS FUNCTIONS (Using requests)
+# These are kept to ensure dashboard and celery workers are not broken
+# ===================================================================
 
 def _handle_request_exception(e: requests.exceptions.RequestException, context: str):
     """A helper to print detailed error messages."""
@@ -153,3 +159,95 @@ def add_task(deal_id: int, user_id: int, subject: str):
         return response.json()
     except requests.exceptions.RequestException as e:
         _handle_request_exception(e, f"add task to deal {deal_id}")
+
+
+# =====================================================================
+# ✅ NEW ASYNCHRONOUS FUNCTIONS (Using httpx)
+# These are for the high-performance weekly report endpoint
+# =====================================================================
+
+def _handle_async_request_exception(e: httpx.RequestError, context: str):
+    """A helper to print detailed error messages for httpx."""
+    error_message = f"Error during async '{context}': {e}"
+    if hasattr(e, 'response') and e.response is not None:
+        error_message += f" | Status: {e.response.status_code} | Response: {e.response.text}"
+    print(error_message)
+    return None
+
+async def get_deals_async(params: dict = None):
+    """Async: Fetches deals from Pipedrive with optional filters and handles pagination."""
+    if params is None:
+        params = {}
+    
+    url = f"{BASE_URL}/deals"
+    params["api_token"] = API_TOKEN
+    
+    all_deals = []
+    start = 0
+    limit = 500
+
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        while True:
+            params["start"] = start
+            params["limit"] = limit
+            try:
+                response = await client.get(url, params=params)
+                response.raise_for_status()
+                data = response.json().get("data", [])
+                
+                if not data:
+                    break
+                
+                all_deals.extend(data)
+                
+                pagination = response.json().get("additional_data", {}).get("pagination", {})
+                if not pagination or not pagination.get("more_items_in_collection"):
+                    break
+                
+                start += len(data)
+            
+            except httpx.RequestError as e:
+                _handle_async_request_exception(e, f"get deals with params {params}")
+                return []
+    
+    return all_deals
+
+async def get_deal_activities_async(deal_id: int):
+    """Async: Fetches all activities associated with a specific deal."""
+    url = f"{BASE_URL}/activities"
+    params = {"api_token": API_TOKEN, "deal_id": deal_id, "limit": 100}
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            return response.json().get("data", [])
+    except httpx.RequestError as e:
+        _handle_async_request_exception(e, f"get activities for deal {deal_id}")
+        return []
+
+async def get_all_stages_async():
+    """Async: Gets all deal stages from Pipedrive."""
+    url = f"{BASE_URL}/stages"
+    params = {"api_token": API_TOKEN}
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            return response.json().get("data", [])
+    except httpx.RequestError as e:
+        _handle_async_request_exception(e, "get all stages")
+        return []
+
+async def get_all_users_async():
+    """Async: Gets all active users from Pipedrive."""
+    url = f"{BASE_URL}/users"
+    params = {"api_token": API_TOKEN}
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            data = response.json().get("data", [])
+            return [user for user in data if user.get("active_flag")] if data else []
+    except httpx.RequestError as e:
+        _handle_async_request_exception(e, "get all users")
+        return []

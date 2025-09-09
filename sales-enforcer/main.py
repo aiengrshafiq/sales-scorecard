@@ -8,6 +8,7 @@ from collections import Counter
 import math
 from typing import Optional
 from pydantic import BaseModel
+import asyncio # <-- Import asyncio
 
 from celery_worker import process_pipedrive_event
 from database import SessionLocal
@@ -64,7 +65,6 @@ def get_db():
 
 # --- Helper Functions ---
 
-# 🛠️ NEW HELPER FUNCTION TO PREVENT TIMEZONE ERRORS
 def ensure_timezone_aware(dt: datetime) -> datetime:
     """Ensures a datetime object is timezone-aware, assuming UTC if naive."""
     if dt.tzinfo is None:
@@ -75,7 +75,6 @@ def time_ago(dt: datetime) -> str:
     """Converts a datetime object to a human-readable string like '2h ago'."""
     if not dt: return "N/A"
     now = datetime.now(timezone.utc)
-    # Ensure dt is aware before comparison
     dt_aware = ensure_timezone_aware(dt)
     diff = now - dt_aware
     seconds = diff.total_seconds()
@@ -115,13 +114,14 @@ async def pipedrive_webhook(request: Request):
     return Response(status_code=200)
 
 @app.get("/api/users", response_model=list[User])
-def get_sales_users():
+async def get_sales_users(): # ✅ CONVERTED TO ASYNC
     """Endpoint to get a list of sales users for filtering."""
-    users = pipedrive_client.get_all_users()
+    # Use the new async client function
+    users = await pipedrive_client.get_all_users_async()
     return [{"id": user["id"], "name": user["name"]} for user in users if user]
 
 @app.get("/api/weekly-report", response_model=list[WeeklyDealReportItem])
-def get_weekly_report(user_id: Optional[int] = None):
+async def get_weekly_report(user_id: Optional[int] = None): # ✅ CONVERTED TO ASYNC
     """
     Generates a report of deals created in the last 7 days, including
     stage aging, activities, and identifying stuck deals.
@@ -137,28 +137,36 @@ def get_weekly_report(user_id: Optional[int] = None):
     if user_id:
         params["user_id"] = user_id
 
-    deals = pipedrive_client.get_deals(params)
+    # ✅ STEP 1: Fetch deals and stages concurrently
+    deals_task = pipedrive_client.get_deals_async(params)
+    stages_task = pipedrive_client.get_all_stages_async()
+    deals, all_stages = await asyncio.gather(deals_task, stages_task)
+
     if not deals:
         return []
 
-    all_stages = pipedrive_client.get_all_stages()
     stage_map = {stage['id']: stage['name'] for stage in all_stages} if all_stages else {}
     
+    # ✅ STEP 2: Create a task for each deal to fetch its activities
+    activity_tasks = [pipedrive_client.get_deal_activities_async(deal["id"]) for deal in deals]
+    # Run all activity-fetching tasks in parallel
+    all_activities_results = await asyncio.gather(*activity_tasks)
+    
     report_items = []
-    for deal in filter(None, deals):
-        activities_raw = pipedrive_client.get_deal_activities(deal["id"])
+    # ✅ STEP 3: Loop through the results which are now all available
+    for deal, activities_raw in zip(deals, all_activities_results):
+        if not deal: continue
+
         activities = []
         last_activity_time = None
 
         if activities_raw:
             activities_raw.sort(key=lambda x: x.get('add_time', '1970-01-01T00:00:00Z'), reverse=True)
-            # ✅ FIX APPLIED HERE
             raw_last_activity_time = datetime.fromisoformat(activities_raw[0]["add_time"].replace('Z', '+00:00'))
             last_activity_time = ensure_timezone_aware(raw_last_activity_time)
             
             for act in activities_raw[:5]:
                  if not all(k in act for k in ['id', 'add_time']): continue
-                 # ✅ FIX APPLIED HERE
                  raw_add_time = datetime.fromisoformat(act["add_time"].replace('Z', '+00:00'))
                  add_time = ensure_timezone_aware(raw_add_time)
                  activities.append(ActivityDetail(
@@ -173,7 +181,6 @@ def get_weekly_report(user_id: Optional[int] = None):
 
         stage_age_days = 0
         if deal.get("stage_change_time"):
-            # ✅ FIX APPLIED HERE - THIS WAS THE LINE CAUSING THE CRASH
             raw_stage_change_time = datetime.fromisoformat(deal["stage_change_time"].replace('Z', '+00:00'))
             stage_change_time = ensure_timezone_aware(raw_stage_change_time)
             stage_age_days = (now - stage_change_time).days
@@ -190,7 +197,7 @@ def get_weekly_report(user_id: Optional[int] = None):
             stuck_reason = f"In stage for {stage_age_days} days with no activities logged."
 
         owner = deal.get("user_id") or {}
-        report_item = WeeklyDealReportItem(
+        report_items.append(WeeklyDealReportItem(
             id=deal["id"],
             title=deal.get("title", "Untitled Deal"),
             owner_name=owner.get("name", "Unknown Owner"),
@@ -202,13 +209,13 @@ def get_weekly_report(user_id: Optional[int] = None):
             stuck_reason=stuck_reason,
             last_activity_formatted=time_ago(last_activity_time),
             activities=activities
-        )
-        report_items.append(report_item)
+        ))
     return report_items
 
 
 @app.get("/api/dashboard-data")
 def get_dashboard_data(db: Session = Depends(get_db)):
+    # THIS ENTIRE FUNCTION IS UNCHANGED AND USES THE ORIGINAL SYNC CLIENT FUNCTIONS
     start_date, end_date, quarter_name = get_current_quarter_dates()
 
     # --- 1. KPIs ---
@@ -219,7 +226,6 @@ def get_dashboard_data(db: Session = Depends(get_db)):
         "status": "won",
         "won_date_since": start_date.strftime('%Y-%m-%d')
     })
-    # ✅ FIX APPLIED HERE for robust filtering
     won_deals_this_quarter = [
         d for d in won_deals_this_quarter 
         if d and d.get("won_time") and ensure_timezone_aware(datetime.fromisoformat(d["won_time"].replace('Z', '+00:00'))) <= end_date
@@ -228,7 +234,6 @@ def get_dashboard_data(db: Session = Depends(get_db)):
     total_days_to_close, deals_for_avg = 0, 0
     for deal in won_deals_this_quarter:
         if deal.get("add_time") and deal.get("won_time"):
-            # ✅ FIX APPLIED HERE
             add_time = ensure_timezone_aware(datetime.fromisoformat(deal["add_time"].replace('Z', '+00:00')))
             won_time = ensure_timezone_aware(datetime.fromisoformat(deal["won_time"].replace('Z', '+00:00')))
             total_days_to_close += (won_time - add_time).days
