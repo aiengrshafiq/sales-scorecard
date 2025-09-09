@@ -8,7 +8,7 @@ from collections import Counter
 import math
 from typing import Optional
 from pydantic import BaseModel
-import asyncio # <-- Import asyncio
+import asyncio # Keep asyncio
 
 from celery_worker import process_pipedrive_event
 from database import SessionLocal
@@ -27,7 +27,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Pydantic Models for new endpoints ---
+# --- Pydantic Models (Unchanged) ---
 class User(BaseModel):
     id: int
     name: str
@@ -55,7 +55,7 @@ class WeeklyDealReportItem(BaseModel):
     activities: list[ActivityDetail]
 
 
-# --- Database Dependency ---
+# --- Database Dependency (Unchanged) ---
 def get_db():
     db = SessionLocal()
     try:
@@ -63,16 +63,13 @@ def get_db():
     finally:
         db.close()
 
-# --- Helper Functions ---
-
+# --- Helper Functions (Unchanged) ---
 def ensure_timezone_aware(dt: datetime) -> datetime:
-    """Ensures a datetime object is timezone-aware, assuming UTC if naive."""
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
     return dt
 
 def time_ago(dt: datetime) -> str:
-    """Converts a datetime object to a human-readable string like '2h ago'."""
     if not dt: return "N/A"
     now = datetime.now(timezone.utc)
     dt_aware = ensure_timezone_aware(dt)
@@ -114,21 +111,18 @@ async def pipedrive_webhook(request: Request):
     return Response(status_code=200)
 
 @app.get("/api/users", response_model=list[User])
-async def get_sales_users(): # ✅ CONVERTED TO ASYNC
-    """Endpoint to get a list of sales users for filtering."""
-    # Use the new async client function
+async def get_sales_users():
     users = await pipedrive_client.get_all_users_async()
     return [{"id": user["id"], "name": user["name"]} for user in users if user]
 
 @app.get("/api/weekly-report", response_model=list[WeeklyDealReportItem])
-async def get_weekly_report(user_id: Optional[int] = None): # ✅ CONVERTED TO ASYNC
-    """
-    Generates a report of deals created in the last 7 days, including
-    stage aging, activities, and identifying stuck deals.
-    """
+async def get_weekly_report(user_id: Optional[int] = None):
     now = datetime.now(timezone.utc)
     seven_days_ago = now - timedelta(days=7)
     STUCK_DAYS_THRESHOLD = 5
+
+    # ✅ STEP 1: Create a semaphore to limit concurrent requests to a safe number (e.g., 10)
+    semaphore = asyncio.Semaphore(10)
 
     params = {
         "status": "open",
@@ -137,7 +131,6 @@ async def get_weekly_report(user_id: Optional[int] = None): # ✅ CONVERTED TO A
     if user_id:
         params["user_id"] = user_id
 
-    # ✅ STEP 1: Fetch deals and stages concurrently
     deals_task = pipedrive_client.get_deals_async(params)
     stages_task = pipedrive_client.get_all_stages_async()
     deals, all_stages = await asyncio.gather(deals_task, stages_task)
@@ -146,14 +139,18 @@ async def get_weekly_report(user_id: Optional[int] = None): # ✅ CONVERTED TO A
         return []
 
     stage_map = {stage['id']: stage['name'] for stage in all_stages} if all_stages else {}
-    
-    # ✅ STEP 2: Create a task for each deal to fetch its activities
-    activity_tasks = [pipedrive_client.get_deal_activities_async(deal["id"]) for deal in deals]
-    # Run all activity-fetching tasks in parallel
+
+    # ✅ STEP 2: Create a helper function that uses the semaphore to wrap our API call
+    async def fetch_activities_with_semaphore(deal_id: int):
+        async with semaphore:
+            # This ensures only 10 of these calls run at the same time
+            return await pipedrive_client.get_deal_activities_async(deal_id)
+
+    # ✅ STEP 3: Create tasks using our new rate-limited helper function
+    activity_tasks = [fetch_activities_with_semaphore(deal["id"]) for deal in deals]
     all_activities_results = await asyncio.gather(*activity_tasks)
     
     report_items = []
-    # ✅ STEP 3: Loop through the results which are now all available
     for deal, activities_raw in zip(deals, all_activities_results):
         if not deal: continue
 
@@ -165,7 +162,7 @@ async def get_weekly_report(user_id: Optional[int] = None): # ✅ CONVERTED TO A
             raw_last_activity_time = datetime.fromisoformat(activities_raw[0]["add_time"].replace('Z', '+00:00'))
             last_activity_time = ensure_timezone_aware(raw_last_activity_time)
             
-            for act in activities_raw[:5]:
+            for act in activities_raw: # We already limited to 10 in the client
                  if not all(k in act for k in ['id', 'add_time']): continue
                  raw_add_time = datetime.fromisoformat(act["add_time"].replace('Z', '+00:00'))
                  add_time = ensure_timezone_aware(raw_add_time)
@@ -215,10 +212,9 @@ async def get_weekly_report(user_id: Optional[int] = None): # ✅ CONVERTED TO A
 
 @app.get("/api/dashboard-data")
 def get_dashboard_data(db: Session = Depends(get_db)):
-    # THIS ENTIRE FUNCTION IS UNCHANGED AND USES THE ORIGINAL SYNC CLIENT FUNCTIONS
+    # This function remains unchanged and uses the original sync client functions
     start_date, end_date, quarter_name = get_current_quarter_dates()
 
-    # --- 1. KPIs ---
     total_points = db.query(func.sum(PointsLedger.points)).filter(PointsLedger.created_at.between(start_date, end_date)).scalar() or 0
     deals_in_pipeline = len(pipedrive_client.get_deals({"status": "open"}))
     
@@ -240,7 +236,6 @@ def get_dashboard_data(db: Session = Depends(get_db)):
             deals_for_avg += 1
     avg_speed_to_close = round(total_days_to_close / deals_for_avg, 1) if deals_for_avg > 0 else 0
 
-    # --- 2. Leaderboard ---
     leaderboard_query = (
         db.query(
             PointsLedger.user_id,
@@ -262,19 +257,16 @@ def get_dashboard_data(db: Session = Depends(get_db)):
             "points": int(row.total_score or 0), "dealsWon": row.deals_won, "onStreak": False,
         })
 
-    # --- 3. Points Over Time ---
     points_by_week = db.query(
         extract('week', PointsLedger.created_at).label('week_number'),
         func.sum(PointsLedger.points).label('total_points')
     ).filter(PointsLedger.created_at >= datetime.now(timezone.utc) - timedelta(weeks=12)).group_by('week_number').order_by('week_number').all()
     points_over_time = [{"week": f"W{int(r.week_number)}", "points": r.total_points} for r in points_by_week]
 
-    # --- 4. Recent Activity ---
     recent_events = db.query(PointsLedger).order_by(desc(PointsLedger.created_at)).limit(5).all()
     type_map = {PointEventType.BONUS: "bonus", PointEventType.STAGE_ADVANCE: "stage"}
     recent_activity = [{"id": entry.id, "type": "win" if entry.notes and "won" in entry.notes.lower() else type_map.get(entry.event_type, "stage"), "text": entry.notes, "time": time_ago(entry.created_at) } for entry in recent_events]
 
-    # --- 5. Sales Health ---
     qual_stage_id, proposal_stage_id = 91, 94
     deals_reached_qual = set(r[0] for r in db.query(DealStageEvent.deal_id).filter(DealStageEvent.stage_id == qual_stage_id).all())
     deals_reached_proposal = set(r[0] for r in db.query(DealStageEvent.deal_id).filter(DealStageEvent.stage_id == proposal_stage_id).all())
