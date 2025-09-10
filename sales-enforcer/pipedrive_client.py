@@ -9,8 +9,7 @@ load_dotenv()
 API_TOKEN = os.getenv("PIPEDRIVE_API_TOKEN")
 BASE_URL = "https://api.pipedrive.com/v1"
 
-# --- All original synchronous functions remain unchanged ---
-# ... (get_deal, get_user, get_all_users, etc.) ...
+# ... (All other synchronous functions like get_user, get_deals, etc. remain unchanged) ...
 def _handle_request_exception(e: requests.exceptions.RequestException, context: str):
     """A helper to print detailed error messages."""
     error_message = f"Error during '{context}': {e}"
@@ -157,8 +156,6 @@ def add_task(deal_id: int, user_id: int, subject: str):
     except requests.exceptions.RequestException as e:
         _handle_request_exception(e, f"add task to deal {deal_id}")
 
-
-# --- All async functions remain unchanged, except for get_deals_async ---
 def _handle_async_request_exception(e: httpx.RequestError, context: str):
     """A helper to print detailed error messages for httpx."""
     error_message = f"Error during async '{context}': {e}"
@@ -167,6 +164,19 @@ def _handle_async_request_exception(e: httpx.RequestError, context: str):
     print(error_message)
     return None
 
+# ✅ NEW FUNCTION to get full deal details asynchronously
+async def get_deal_async(deal_id: int):
+    """Async: Gets a single deal's full details from Pipedrive."""
+    url = f"{BASE_URL}/deals/{deal_id}"
+    params = {"api_token": API_TOKEN}
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            return response.json().get("data", None)
+    except httpx.RequestError as e:
+        return _handle_async_request_exception(e, f"get deal {deal_id}")
+
 async def get_deals_async(params: dict = None):
     """Async: Fetches deals from Pipedrive with optional filters and handles pagination."""
     if params is None:
@@ -174,7 +184,6 @@ async def get_deals_async(params: dict = None):
     
     url = f"{BASE_URL}/deals"
     
-    # ✅ MODIFIED: Create a copy of params to avoid modifying the original dict
     request_params = params.copy()
     request_params["api_token"] = API_TOKEN
     
@@ -187,10 +196,6 @@ async def get_deals_async(params: dict = None):
             request_params["start"] = start
             request_params["limit"] = limit
             try:
-                # The Pipedrive API doesn't support a date range on add_time.
-                # The 'since' parameter is not official. The robust way is to fetch all open deals
-                # for the pipeline and filter by date in our backend.
-                # To optimize, we remove the date filter from the API call itself.
                 if 'add_time_since' in request_params:
                     del request_params['add_time_since']
                 

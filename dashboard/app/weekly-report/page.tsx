@@ -15,13 +15,26 @@ const formatDateForAPI = (date: Date) => {
 
 // --- TYPE DEFINITIONS ---
 interface ActivityDetail { id: number; subject: string; type: string; done: boolean; add_time: string; owner_name: string; }
-interface WeeklyDeal { id: number; title: string; owner_name: string; owner_id: number; stage_name: string; value: string; stage_age_days: number; is_stuck: boolean; stuck_reason: string; last_activity_formatted: string; activities: ActivityDetail[]; }
+interface WeeklyDeal {
+    id: number;
+    title: string;
+    owner_name: string;
+    owner_id: number;
+    // ✅ ADDED: New field for the Unique ID
+    unique_id?: string;
+    stage_name: string;
+    value: string;
+    stage_age_days: number;
+    is_stuck: boolean;
+    stuck_reason: string;
+    last_activity_formatted: string;
+    activities: ActivityDetail[];
+}
 interface SalesUser { id: number; name: string; }
 interface StageSummary { stage_name: string; deal_count: number; }
 interface ReportSummary { total_deals_created: number; stage_breakdown: StageSummary[]; }
 interface WeeklyReportResponse { summary: ReportSummary; deals: WeeklyDeal[]; }
 
-// ✅ NEW: Create a specific type for the filters state
 interface ReportFiltersState {
   start_date: string;
   end_date: string;
@@ -62,18 +75,19 @@ const DealRow = ({ deal }: { deal: WeeklyDeal }) => {
         <>
             <tr onClick={() => setIsExpanded(!isExpanded)} className="border-b border-gray-700 hover:bg-gray-700/50 cursor-pointer transition-colors">
                 <td className="px-4 py-3 align-top"><div className="font-medium text-white">{deal.title}</div><div className="text-sm text-gray-400">{deal.owner_name}</div></td>
+                {/* ✅ ADDED: New column for the Unique ID */}
+                <td className="px-4 py-3 text-sm text-gray-400 font-mono align-top">{deal.unique_id || 'N/A'}</td>
                 <td className="px-4 py-3 text-sm text-gray-300 align-top">{deal.stage_name}</td>
                 <td className="px-4 py-3 font-mono text-white align-top">{deal.value}</td>
                 <td className="px-4 py-3 align-top"><span className="inline-flex items-center rounded-md bg-gray-600/50 px-2 py-1 text-xs font-medium text-gray-300 ring-1 ring-inset ring-gray-500/10">{deal.stage_age_days} days</span></td>
                 <td className="px-4 py-3 text-sm text-gray-400 align-top">{deal.last_activity_formatted}</td>
                 <td className="px-4 py-3 align-top">{deal.is_stuck && (<span title={deal.stuck_reason} className="inline-flex items-center gap-x-1.5 rounded-full bg-red-900/80 px-2 py-1 text-xs font-medium text-red-300"><AlertCircle className="h-3 w-3" />Stuck</span>)}</td>
             </tr>
-            {isExpanded && (<tr className="bg-gray-800/50"><td colSpan={6} className="p-4"><h4 className="font-semibold text-sm text-white mb-2">Recent Activities ({deal.activities.length})</h4>{deal.activities.length > 0 ? (<ul className="space-y-2">{deal.activities.map(act => (<li key={act.id} className="flex items-center text-sm gap-2"><ActivityIcon type={act.type} /><span className="text-gray-300 flex-grow">{act.subject}</span><span className="text-xs text-gray-500 text-right flex-shrink-0">{new Date(act.add_time).toLocaleDateString()} by {act.owner_name}</span></li>))}</ul>) : (<p className="text-sm text-gray-500">No activities found for this deal.</p>)}</td></tr>)}
+            {isExpanded && (<tr className="bg-gray-800/50"><td colSpan={7} className="p-4"><h4 className="font-semibold text-sm text-white mb-2">Recent Completed Activities ({deal.activities.length})</h4>{deal.activities.length > 0 ? (<ul className="space-y-2">{deal.activities.map(act => (<li key={act.id} className="flex items-center text-sm gap-2"><ActivityIcon type={act.type} /><span className="text-gray-300 flex-grow">{act.subject}</span><span className="text-xs text-gray-500 text-right flex-shrink-0">{new Date(act.add_time).toLocaleDateString()} by {act.owner_name}</span></li>))}</ul>) : (<p className="text-sm text-gray-500">No completed activities found for this deal.</p>)}</td></tr>)}
         </>
     );
 };
 
-// ✅ FIXED: Replaced 'any' with the specific 'ReportFiltersState' type
 const ReportFilters = ({ filters, onFiltersChange }: { filters: ReportFiltersState, onFiltersChange: (newFilters: ReportFiltersState) => void }) => {
     const { data: users } = useSWR<SalesUser[]>(`${API_BASE_URL}/api/users`, fetcher);
 
@@ -109,7 +123,7 @@ const ReportFilters = ({ filters, onFiltersChange }: { filters: ReportFiltersSta
 };
 
 export default function WeeklyReportPage() {
-    const [filters, setFilters] = useState<ReportFiltersState>({ // Added type to useState
+    const [filters, setFilters] = useState<ReportFiltersState>({
         start_date: formatDateForAPI(new Date(new Date().setDate(new Date().getDate() - 6))),
         end_date: formatDateForAPI(new Date()),
         userId: 'all'
@@ -178,6 +192,8 @@ export default function WeeklyReportPage() {
                                         <thead className="bg-gray-800/60 text-xs text-gray-400 uppercase tracking-wider">
                                             <tr>
                                                 <th className="px-4 py-3 font-medium">Deal / Owner</th>
+                                                {/* ✅ ADDED: New table header */}
+                                                <th className="px-4 py-3 font-medium">Unique ID</th>
                                                 <th className="px-4 py-3 font-medium">Current Stage</th>
                                                 <th className="px-4 py-3 font-medium">Value</th>
                                                 <th className="px-4 py-3 font-medium">Time in Stage</th>
@@ -189,7 +205,7 @@ export default function WeeklyReportPage() {
                                             {data.deals.length > 0 ? (
                                                 data.deals.map(deal => <DealRow key={deal.id} deal={deal} />)
                                             ) : (
-                                                <tr><td colSpan={6} className="text-center py-8 text-gray-500">No deals created in the selected period.</td></tr>
+                                                <tr><td colSpan={7} className="text-center py-8 text-gray-500">No deals created in the selected period.</td></tr>
                                             )}
                                         </tbody>
                                     </table>
