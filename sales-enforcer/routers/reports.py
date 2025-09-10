@@ -34,25 +34,16 @@ async def get_weekly_report(
     SALES_FLOW_PIPELINE_ID = 11
     DEAL_UNIQUE_ID_KEY = "8d5a64af5474d18b62fb4d6e2881fb65009fca99"
     
-    # ✅ FIXED: Call the new, specific function to get deals ONLY from the correct pipeline.
-    # This is much faster and guarantees correct filtering.
     deals_in_pipeline = await pipedrive_client.get_deals_from_pipeline_async(
         pipeline_id=SALES_FLOW_PIPELINE_ID,
         user_id=user_id
     )
     
-    # ✅ FIXED: Now we just filter this correctly-scoped list by date.
-    # We can stop checking as soon as we find a deal older than our start_date.
     filtered_deals = []
     for deal in deals_in_pipeline:
         if not (deal and 'add_time' in deal): continue
-        
         add_time = ensure_timezone_aware(datetime.fromisoformat(deal['add_time'].replace('Z', '+00:00')))
-        
-        # Since results are sorted newest first, we stop when we hit a deal older than our range.
-        if add_time < start_datetime:
-            break
-        
+        if add_time < start_datetime: break
         if add_time <= end_datetime:
             filtered_deals.append(deal)
 
@@ -62,17 +53,14 @@ async def get_weekly_report(
     all_stages = await pipedrive_client.get_all_stages_async()
     stage_map = {stage['id']: stage['name'] for stage in all_stages} if all_stages else {}
 
-    # --- Section 1: Generate Summary ---
-    stage_ids = [deal['stage_id'] for deal in filtered_deals]
-    stage_counts = Counter(stage_ids)
-    stage_breakdown = [StageSummary(stage_name=stage_map.get(sid, f"Unknown Stage {sid}"), deal_count=c) for sid, c in stage_counts.items()]
-    summary = ReportSummary(total_deals_created=len(filtered_deals), stage_breakdown=sorted(stage_breakdown, key=lambda x: x.deal_count, reverse=True))
+    summary = ReportSummary(
+        total_deals_created=len(filtered_deals),
+        stage_breakdown=sorted([StageSummary(stage_name=stage_map.get(sid, f"Unknown Stage {sid}"), deal_count=c) for sid, c in Counter([d['stage_id'] for d in filtered_deals]).items()], key=lambda x: x.deal_count, reverse=True)
+    )
 
-    # --- Section 2: Generate Detailed Deal List ---
     semaphore = asyncio.Semaphore(10)
     async def fetch_full_data(deal_id: int):
         async with semaphore:
-            # We fetch full details to ensure all fields (like 'last_activity_date') are present
             deal_task = pipedrive_client.get_deal_async(deal_id)
             activity_task = pipedrive_client.get_deal_activities_async(deal_id)
             return await asyncio.gather(deal_task, activity_task)
@@ -85,14 +73,41 @@ async def get_weekly_report(
     for deal, activities_raw in results:
         if not deal: continue 
         
+        # ✅ FIXED: Replaced the entire activity processing block with the new, correct logic.
         activities = []
         if activities_raw:
-            activities_raw.sort(key=lambda x: x.get('add_time', '1970-01-01T00:00:00Z'), reverse=True)
+            # Sort by when it was marked done; fall back gracefully to other dates
+            def _sort_key(a):
+                return (
+                    a.get("marked_as_done_time")
+                    or (f"{a.get('due_date','')} {a.get('due_time','')}".strip() or None)
+                    or a.get("update_time")
+                    or a.get("add_time") or ""
+                )
+            activities_raw.sort(key=_sort_key, reverse=True)
+
             for act in activities_raw:
-                 if not all(k in act for k in ['id', 'add_time']): continue
-                 add_time = ensure_timezone_aware(datetime.fromisoformat(act["add_time"].replace('Z', '+00:00')))
-                 activities.append(ActivityDetail(id=act['id'], subject=act.get('subject', 'No Subject'), type=act.get('type', 'task'), done=act.get('done', False), due_date=act.get('due_date'), add_time=add_time, owner_name=act.get('owner_name', 'Unknown')))
-        
+                if not act.get("id"): continue
+
+                # Pick a display timestamp, preferring marked_as_done_time
+                ts = None
+                if act.get("marked_as_done_time"):
+                    ts = ensure_timezone_aware(datetime.strptime(act["marked_as_done_time"], "%Y-%m-%d %H:%M:%S"))
+                elif act.get("add_time"):
+                    ts = ensure_timezone_aware(datetime.fromisoformat(act["add_time"].replace("Z", "+00:00")))
+                
+                owner_name = ( (act.get("user_id") or {}).get("name") if isinstance(act.get("user_id"), dict) else None ) or act.get("owner_name") or "Unknown"
+
+                activities.append(ActivityDetail(
+                    id=act["id"],
+                    subject=act.get("subject", "No Subject"),
+                    type=act.get("type", "task"),
+                    done=bool(act.get("done", False)),
+                    due_date=act.get("due_date"),
+                    add_time=ts or ensure_timezone_aware(datetime(1970, 1, 1, tzinfo=timezone.utc)),
+                    owner_name=owner_name
+                ))
+
         last_activity_time = None
         if deal.get("last_activity_date"):
             last_activity_time = ensure_timezone_aware(datetime.strptime(deal["last_activity_date"], '%Y-%m-%d'))
@@ -107,26 +122,11 @@ async def get_weekly_report(
         if last_activity_time:
             days_since_activity = (now - last_activity_time).days
             if days_since_activity > STUCK_DAYS_THRESHOLD:
-                is_stuck = True
-                stuck_reason = f"No activity for {days_since_activity} days."
+                is_stuck = True; stuck_reason = f"No activity for {days_since_activity} days."
         elif stage_age_days > STUCK_DAYS_THRESHOLD:
-            is_stuck = True
-            stuck_reason = f"In stage for {stage_age_days} days with no completed activities."
+            is_stuck = True; stuck_reason = f"In stage for {stage_age_days} days with no completed activities."
 
         owner = deal.get("user_id") or {}
-        detailed_deals.append(WeeklyDealReportItem(
-            id=deal["id"],
-            title=deal.get("title", "Untitled Deal"),
-            owner_name=owner.get("name", "Unknown Owner"),
-            owner_id=owner.get("id", 0),
-            unique_id=deal.get(DEAL_UNIQUE_ID_KEY),
-            stage_name=stage_map.get(deal["stage_id"], "Unknown Stage"),
-            value=f"{deal.get('currency', '$')} {deal.get('value', 0):,}",
-            stage_age_days=stage_age_days,
-            is_stuck=is_stuck,
-            stuck_reason=stuck_reason,
-            last_activity_formatted=time_ago(last_activity_time),
-            activities=activities
-        ))
+        detailed_deals.append(WeeklyDealReportItem(id=deal["id"],title=deal.get("title", "Untitled Deal"),owner_name=owner.get("name", "Unknown Owner"),owner_id=owner.get("id", 0),unique_id=deal.get(DEAL_UNIQUE_ID_KEY),stage_name=stage_map.get(deal["stage_id"], "Unknown Stage"),value=f"{deal.get('currency', '$')} {deal.get('value', 0):,}",stage_age_days=stage_age_days,is_stuck=is_stuck,stuck_reason=stuck_reason,last_activity_formatted=time_ago(last_activity_time),activities=activities))
     
     return WeeklyReportResponse(summary=summary, deals=detailed_deals)

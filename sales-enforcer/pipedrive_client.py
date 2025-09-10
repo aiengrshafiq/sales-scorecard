@@ -130,16 +130,45 @@ async def get_deals_from_pipeline_async(
             
     return all_deals
 
-async def get_deal_activities_async(deal_id: int):
-    url = f"{V1_BASE}/activities"
-    params = {"api_token": API_TOKEN, "deal_id": deal_id, "limit": 10, "done": 1} 
+async def get_deal_activities_async(deal_id: int, limit: int = 10, done: int = 1):
+    """Async: Fetches activities for a SPECIFIC deal using the correct endpoint."""
+    # Correct endpoint: /deals/{id}/activities
+    url = f"{V1_BASE}/deals/{deal_id}/activities"
+    params = {
+        "api_token": API_TOKEN,
+        "start": 0,
+        "limit": limit,
+    }
+    if done is not None:
+        params["done"] = done
+
+    items = []
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            return response.json().get("data", [])
+            # This endpoint also uses start/limit pagination
+            while True:
+                resp = await client.get(url, params=params)
+                resp.raise_for_status()
+                body = resp.json()
+                data = body.get("data") or []
+                items.extend(data)
+
+                # Stop if we've fetched enough according to the limit
+                if limit and len(items) >= limit:
+                    return items[:limit]
+
+                pagination = body.get("additional_data", {}).get("pagination", {})
+                if not pagination or not pagination.get("more_items_in_collection"):
+                    break
+                
+                next_start = pagination.get("next_start")
+                if next_start is not None:
+                    params["start"] = next_start
+                else: # Fallback if next_start isn't provided
+                    break 
     except httpx.RequestError as e:
         return _handle_async_request_exception(e, f"get activities for deal {deal_id}")
+    return items
 
 async def get_all_stages_async():
     url = f"{V1_BASE}/stages"
