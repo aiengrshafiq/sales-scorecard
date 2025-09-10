@@ -34,27 +34,23 @@ async def get_weekly_report(
     SALES_FLOW_PIPELINE_ID = 11
     DEAL_UNIQUE_ID_KEY = "8d5a64af5474d18b62fb4d6e2881fb65009fca99"
     
-    # ✅ FIXED: Call the main /deals endpoint with the correct pipeline_id and sort order.
-    # This is the most efficient way to get the data we need.
-    params = { 
-        "status": "open", 
-        "pipeline_id": SALES_FLOW_PIPELINE_ID,
-        "sort": "add_time DESC" # Ask for newest deals first
-    }
-    if user_id: params["user_id"] = user_id
-
-    all_deals_in_pipeline = await pipedrive_client.get_deals_async(params)
+    # ✅ FIXED: Call the new, specific function to get deals ONLY from the correct pipeline.
+    # This is much faster and guarantees correct filtering.
+    deals_in_pipeline = await pipedrive_client.get_deals_from_pipeline_async(
+        pipeline_id=SALES_FLOW_PIPELINE_ID,
+        user_id=user_id
+    )
     
     # ✅ FIXED: Now we just filter this correctly-scoped list by date.
     # We can stop checking as soon as we find a deal older than our start_date.
     filtered_deals = []
-    for deal in all_deals_in_pipeline:
+    for deal in deals_in_pipeline:
         if not (deal and 'add_time' in deal): continue
         
         add_time = ensure_timezone_aware(datetime.fromisoformat(deal['add_time'].replace('Z', '+00:00')))
         
+        # Since results are sorted newest first, we stop when we hit a deal older than our range.
         if add_time < start_datetime:
-            # Since the list is sorted by newest, we can stop here.
             break
         
         if add_time <= end_datetime:
@@ -76,7 +72,7 @@ async def get_weekly_report(
     semaphore = asyncio.Semaphore(10)
     async def fetch_full_data(deal_id: int):
         async with semaphore:
-            # Fetch full deal details and activities concurrently for accuracy
+            # We fetch full details to ensure all fields (like 'last_activity_date') are present
             deal_task = pipedrive_client.get_deal_async(deal_id)
             activity_task = pipedrive_client.get_deal_activities_async(deal_id)
             return await asyncio.gather(deal_task, activity_task)
@@ -87,7 +83,7 @@ async def get_weekly_report(
     detailed_deals = []
     STUCK_DAYS_THRESHOLD = 5
     for deal, activities_raw in results:
-        if not deal: continue # Skip if fetching full deal details failed
+        if not deal: continue 
         
         activities = []
         if activities_raw:
