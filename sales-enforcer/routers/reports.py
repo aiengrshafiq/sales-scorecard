@@ -33,7 +33,6 @@ class WeeklyDealReportItem(BaseModel):
     last_activity_formatted: str
     activities: List[ActivityDetail]
 
-# ✅ NEW Models for the two-part response structure
 class StageSummary(BaseModel):
     stage_name: str
     deal_count: int
@@ -55,29 +54,22 @@ async def get_weekly_report(
 ):
     now = datetime.now(timezone.utc)
     
-    # Default to last 7 days if no dates are provided
     if end_date is None:
         end_date = now.date()
     if start_date is None:
         start_date = end_date - timedelta(days=6)
         
-    # Convert dates to timezone-aware datetimes for comparison
     start_datetime = ensure_timezone_aware(datetime.combine(start_date, datetime.min.time()))
     end_datetime = ensure_timezone_aware(datetime.combine(end_date, datetime.max.time()))
 
     SALES_FLOW_PIPELINE_ID = 11
     
-    params = {
-        "status": "open",
-        "pipeline_id": SALES_FLOW_PIPELINE_ID,
-    }
+    params = { "status": "open", "pipeline_id": SALES_FLOW_PIPELINE_ID }
     if user_id:
         params["user_id"] = user_id
 
-    # Fetch all open deals for the pipeline, then we'll filter by date
     all_deals_in_pipeline = await pipedrive_client.get_deals_async(params)
     
-    # ✅ Filter deals by creation date (add_time) in Python
     filtered_deals = [
         deal for deal in all_deals_in_pipeline
         if deal and 'add_time' in deal and
@@ -118,16 +110,18 @@ async def get_weekly_report(
     detailed_deals = []
     STUCK_DAYS_THRESHOLD = 5
     for deal, activities_raw in zip(filtered_deals, all_activities_results):
-        # ... (The detailed processing logic is the same as before) ...
         activities = []
-        last_activity_time = None
         if activities_raw:
             activities_raw.sort(key=lambda x: x.get('add_time', '1970-01-01T00:00:00Z'), reverse=True)
-            last_activity_time = ensure_timezone_aware(datetime.fromisoformat(activities_raw[0]["add_time"].replace('Z', '+00:00')))
             for act in activities_raw:
                  if not all(k in act for k in ['id', 'add_time']): continue
                  add_time = ensure_timezone_aware(datetime.fromisoformat(act["add_time"].replace('Z', '+00:00')))
                  activities.append(ActivityDetail(id=act['id'], subject=act.get('subject', 'No Subject'), type=act.get('type', 'task'), done=act.get('done', False), due_date=act.get('due_date'), add_time=add_time, owner_name=act.get('owner_name', 'Unknown')))
+        
+        # ✅ FIXED: Use the deal's dedicated 'last_activity_date' field for calculations
+        last_activity_time = None
+        if deal.get("last_activity_date"):
+            last_activity_time = ensure_timezone_aware(datetime.strptime(deal["last_activity_date"], '%Y-%m-%d'))
         
         stage_age_days = 0
         if deal.get("stage_change_time"):
@@ -141,9 +135,10 @@ async def get_weekly_report(
             if days_since_activity > STUCK_DAYS_THRESHOLD:
                 is_stuck = True
                 stuck_reason = f"No activity for {days_since_activity} days."
+        # If there are no past activities, a deal is stuck if it's old
         elif stage_age_days > STUCK_DAYS_THRESHOLD:
             is_stuck = True
-            stuck_reason = f"In stage for {stage_age_days} days with no activities logged."
+            stuck_reason = f"In stage for {stage_age_days} days with no completed activities."
 
         owner = deal.get("user_id") or {}
         detailed_deals.append(WeeklyDealReportItem(id=deal["id"], title=deal.get("title", "Untitled Deal"), owner_name=owner.get("name", "Unknown Owner"), owner_id=owner.get("id", 0), stage_name=stage_map.get(deal["stage_id"], "Unknown Stage"), value=f"{deal.get('currency', '$')} {deal.get('value', 0):,}", stage_age_days=stage_age_days, is_stuck=is_stuck, stuck_reason=stuck_reason, last_activity_formatted=time_ago(last_activity_time), activities=activities))
