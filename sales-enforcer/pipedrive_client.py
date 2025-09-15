@@ -1,11 +1,10 @@
-# sales-enforcer/pipedrive_client.py
 import os
 import requests
 import httpx
 from dotenv import load_dotenv
 from datetime import date
 from typing import Optional, List, Dict
-import asyncio  # ✅ FIXED: Added the missing import
+import asyncio
 
 load_dotenv()
 
@@ -15,75 +14,151 @@ V1_BASE = f"{API_HOST}/v1"
 V2_BASE = f"{API_HOST}/api/v2"
 
 # --- Synchronous Functions ---
+
 def _handle_request_exception(e: requests.exceptions.RequestException, context: str):
-    error_message = f"Error during '{context}': {e}";print(error_message);return None
+    error_message = f"Error during '{context}': {e}"
+    if e.response is not None:
+        error_message += f" | Status: {e.response.status_code} | Response: {e.response.text}"
+    print(error_message)
+    return None
+
 def get_deal(deal_id: int):
-    url = f"{V1_BASE}/deals/{deal_id}";params = {"api_token": API_TOKEN};try:response = requests.get(url, params=params);response.raise_for_status();return response.json().get("data", None)
-    except requests.exceptions.RequestException as e:return _handle_request_exception(e, f"get deal {deal_id}")
+    url = f"{V1_BASE}/deals/{deal_id}"
+    params = {"api_token": API_TOKEN}
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        return response.json().get("data", None)
+    except requests.exceptions.RequestException as e:
+        return _handle_request_exception(e, f"get deal {deal_id}")
+
 def get_user(user_id: int):
-    url = f"{V1_BASE}/users/{user_id}";params = {"api_token": API_TOKEN};try:response = requests.get(url, params=params);response.raise_for_status();return response.json().get("data", {})
-    except requests.exceptions.RequestException as e: _handle_request_exception(e, f"get user {user_id}");return {}
+    url = f"{V1_BASE}/users/{user_id}"
+    params = {"api_token": API_TOKEN}
+    try:
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        return response.json().get("data", {})
+    except requests.exceptions.RequestException as e:
+        _handle_request_exception(e, f"get user {user_id}")
+        return {}
+
 def get_deals(params: dict = None):
-    if params is None: params = {};url = f"{V1_BASE}/deals";params["api_token"] = API_TOKEN;all_deals = [];start = 0;limit = 500
+    if params is None:
+        params = {}
+    url = f"{V1_BASE}/deals"
+    params["api_token"] = API_TOKEN
+    all_deals = []
+    start = 0
+    limit = 500
     while True:
-        params["start"] = start;params["limit"] = limit
+        params["start"] = start
+        params["limit"] = limit
         try:
-            response = requests.get(url, params=params);response.raise_for_status();data = response.json().get("data", [])
-            if not data: break
+            response = requests.get(url, params=params)
+            response.raise_for_status()
+            data = response.json().get("data", [])
+            if not data:
+                break
             all_deals.extend(data)
             pagination = response.json().get("additional_data", {}).get("pagination", {})
-            if not pagination or not pagination.get("more_items_in_collection"): break
+            if not pagination or not pagination.get("more_items_in_collection"):
+                break
             start += len(data)
-        except requests.exceptions.RequestException as e: _handle_request_exception(e, f"get deals with params {params}");return []
+        except requests.exceptions.RequestException as e:
+            _handle_request_exception(e, f"get deals with params {params}")
+            return []
     return all_deals
 
 
 # --- Asynchronous Functions ---
+
 def _handle_async_request_exception(e: httpx.RequestError, context: str):
-    error_message = f"Error during async '{context}': {e}";print(error_message);return None
+    error_message = f"Error during async '{context}': {e}"
+    if hasattr(e, 'response') and e.response is not None:
+        error_message += f" | Status: {e.response.status_code} | Response: {e.response.text}"
+    print(error_message)
+    return None
 
 async def get_deal_async(deal_id: int):
-    url = f"{V1_BASE}/deals/{deal_id}";params = {"api_token": API_TOKEN}
+    url = f"{V1_BASE}/deals/{deal_id}"
+    params = {"api_token": API_TOKEN}
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client: response = await client.get(url, params=params);response.raise_for_status();return response.json().get("data", None)
-    except httpx.RequestError as e: return _handle_async_request_exception(e, f"get deal {deal_id}")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            return response.json().get("data", None)
+    except httpx.RequestError as e:
+        return _handle_async_request_exception(e, f"get deal {deal_id}")
 
 async def get_deals_from_pipeline_async(pipeline_id: int, user_id: int | None = None, status: str = "open"):
-    url = f"{V2_BASE}/deals";params = {"api_token": API_TOKEN,"pipeline_id": pipeline_id,"status": status,"sort_by": "add_time","sort_direction": "desc","limit": 500}
-    if user_id: params["owner_id"] = user_id
+    url = f"{V2_BASE}/deals"
+    params = {
+        "api_token": API_TOKEN,
+        "pipeline_id": pipeline_id,
+        "status": status,
+        "sort_by": "add_time",
+        "sort_direction": "desc",
+        "limit": 500
+    }
+    if user_id:
+        params["owner_id"] = user_id
+
     all_deals = []
     async with httpx.AsyncClient(timeout=60.0) as client:
         while True:
-            resp = await client.get(url, params=params);resp.raise_for_status();body = resp.json();data = body.get("data", []) or []
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            body = resp.json()
+            data = body.get("data", []) or []
             all_deals.extend(data)
             cursor = body.get("additional_data", {}).get("next_cursor")
-            if not cursor: break
-            params["cursor"] = cursor;params.pop("start", None);params.pop("limit", None)
+            if not cursor:
+                break
+            params["cursor"] = cursor
+            params.pop("start", None)
+            params.pop("limit", None)
     return all_deals
 
 async def get_deal_activities_async(deal_id: int, limit: int = 10, done: int = 1):
-    url = f"{V1_BASE}/deals/{deal_id}/activities";params = {"api_token": API_TOKEN,"start": 0,"limit": limit,}
-    if done is not None: params["done"] = done
+    url = f"{V1_BASE}/deals/{deal_id}/activities"
+    params = {"api_token": API_TOKEN, "start": 0, "limit": limit}
+    if done is not None:
+        params["done"] = done
+
     items = []
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             while True:
-                resp = await client.get(url, params=params);resp.raise_for_status();body = resp.json();data = body.get("data") or []
+                resp = await client.get(url, params=params)
+                resp.raise_for_status()
+                body = resp.json()
+                data = body.get("data") or []
                 items.extend(data)
-                if limit and len(items) >= limit: return items[:limit]
+                if limit and len(items) >= limit:
+                    return items[:limit]
                 pagination = body.get("additional_data", {}).get("pagination", {})
-                if not pagination or not pagination.get("more_items_in_collection"): break
+                if not pagination or not pagination.get("more_items_in_collection"):
+                    break
                 next_start = pagination.get("next_start")
-                if next_start is not None: params["start"] = next_start
-                else: break 
-    except httpx.RequestError as e: return _handle_async_request_exception(e, f"get activities for deal {deal_id}")
+                if next_start is not None:
+                    params["start"] = next_start
+                else:
+                    break
+    except httpx.RequestError as e:
+        return _handle_async_request_exception(e, f"get activities for deal {deal_id}")
     return items
 
 async def get_all_stages_async():
-    url = f"{V1_BASE}/stages";params = {"api_token": API_TOKEN}
+    url = f"{V1_BASE}/stages"
+    params = {"api_token": API_TOKEN}
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client: response = await client.get(url, params=params);response.raise_for_status();return response.json().get("data", [])
-    except httpx.RequestError as e: return _handle_async_request_exception(e, "get all stages")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(url, params=params)
+            response.raise_for_status()
+            return response.json().get("data", [])
+    except httpx.RequestError as e:
+        return _handle_async_request_exception(e, "get all stages")
 
 async def get_all_users_async():
     url = f"{V1_BASE}/users"
@@ -129,6 +204,7 @@ async def get_activities_by_due_date_range_v2_async(
                 d = date.fromisoformat(dd)
                 
                 if d > end_date:
+                    # Sort is ascending, so we can stop fetching pages
                     return results
                 
                 if start_date <= d <= end_date:
