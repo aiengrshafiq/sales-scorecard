@@ -1,10 +1,10 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime, date
+# ✅ FIXED: Added missing timezone and timedelta imports
+from datetime import datetime, date, timezone, timedelta
 
 import pipedrive_client
-from utils import ensure_timezone_aware
 
 router = APIRouter()
 
@@ -29,14 +29,12 @@ async def get_due_activities(
     """
     Fetches all open (not done) activities within a given date range.
     """
-    # Fetch all open activities from Pipedrive
-    # Pipedrive's API is best suited to filter by user_id server-side
     all_open_activities = await pipedrive_client.get_all_open_activities_async(user_id=user_id)
 
-    # Convert filter dates to timezone-aware datetimes for comparison
-    now = datetime.now(timezone.utc).date()
-    start_date_filter = start_date if start_date else now - timedelta(days=30)
-    end_date_filter = end_date if end_date else now + timedelta(days=30)
+    now_date = datetime.now(timezone.utc).date()
+    # Default date range if none are provided
+    start_date_filter = start_date if start_date else now_date
+    end_date_filter = end_date if end_date else now_date + timedelta(days=30)
 
     # Filter activities in Python to match the date range
     filtered_activities = []
@@ -65,7 +63,7 @@ async def get_due_activities(
                 owner_name=activity.get("owner_name", "Unknown"),
                 deal_id=activity.get("deal_id"),
                 deal_title=activity.get("deal_title", "No Associated Deal"),
-                is_overdue=(due_date < now)
+                is_overdue=(due_date < now_date)
             )
         )
         
