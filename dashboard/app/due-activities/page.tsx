@@ -76,11 +76,20 @@ const Filters = ({ filters, onFiltersChange }: { filters: DueActivityFiltersStat
 };
 
 export default function DueActivitiesPage() {
-    const [filters, setFilters] = useState<DueActivityFiltersState>({
-        start_date: formatDateForAPI(new Date()), // Defaults to today
-        end_date: formatDateForAPI(new Date(new Date().setDate(new Date().getDate() + 30))), // Defaults to 30 days from now
-        userId: 'all'
-    });
+    // ✅ CHANGED: Updated the initial state for the date filters.
+    const getInitialFilters = () => {
+        const today = new Date();
+        const oneMonthAgo = new Date();
+        oneMonthAgo.setMonth(today.getMonth() - 1);
+
+        return {
+            start_date: formatDateForAPI(oneMonthAgo), // Defaults to one month ago
+            end_date: formatDateForAPI(today),       // Defaults to today
+            userId: 'all'
+        };
+    };
+
+    const [filters, setFilters] = useState<DueActivityFiltersState>(getInitialFilters());
 
     const queryParams = new URLSearchParams({
         start_date: filters.start_date,
