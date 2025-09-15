@@ -192,3 +192,46 @@ async def get_all_users_async():
             return [user for user in data if user.get("active_flag")] if data else []
     except httpx.RequestError as e:
         return _handle_async_request_exception(e, "get all users")
+
+
+# ✅ ADD THIS NEW ASYNC FUNCTION AT THE END OF THE FILE
+
+async def get_all_open_activities_async(user_id: int | None = None):
+    """
+    Async: Fetches all open (not done) activities, with pagination.
+    Optionally filters by a specific user.
+    """
+    url = f"{V1_BASE}/activities"
+    params = {
+        "api_token": API_TOKEN,
+        "done": 0, # 0 = not done
+        "limit": 500
+    }
+    if user_id:
+        params["user_id"] = user_id
+
+    all_activities = []
+    start = 0
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        while True:
+            params["start"] = start
+            try:
+                resp = await client.get(url, params=params)
+                resp.raise_for_status()
+                body = resp.json()
+                data = body.get("data") or []
+                if not data:
+                    break
+                
+                all_activities.extend(data)
+                
+                pagination = body.get("additional_data", {}).get("pagination", {})
+                if not pagination or not pagination.get("more_items_in_collection"):
+                    break
+                start += len(data)
+
+            except httpx.RequestError as e:
+                _handle_async_request_exception(e, f"get all open activities")
+                return []
+    return all_activities

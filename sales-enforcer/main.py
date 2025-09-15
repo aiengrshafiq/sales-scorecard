@@ -14,6 +14,7 @@ from models import PointsLedger, DealStageEvent, PointEventType
 import pipedrive_client
 import config
 from routers import reports as reports_router
+from routers import activities as activities_router
 from utils import ensure_timezone_aware, time_ago # ✅ CHANGED: Import from utils.py
 
 app = FastAPI()
@@ -26,6 +27,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.include_router(reports_router.router, prefix="/api")
+app.include_router(activities_router.router, prefix="/api") 
 
 # --- Pydantic Models ---
 class User(BaseModel):

@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import useSWR from 'swr';
 import Link from 'next/link';
-import { ArrowLeft, AlertCircle, Phone, Mail, ChevronsRight, Briefcase, BarChart3 } from 'lucide-react';
+import { ArrowRight,ArrowLeft, AlertCircle, Phone, Mail, ChevronsRight, Briefcase, BarChart3 } from 'lucide-react';
 
 // --- API Configuration & Helper ---
 const API_BASE_URL = "https://sales-enforcer-api.orangeground-02804893.uaenorth.azurecontainerapps.io";
@@ -148,6 +148,10 @@ export default function WeeklyReportPage() {
                     <Link href="/" className="inline-flex items-center text-indigo-400 hover:text-indigo-300 transition-colors">
                         <ArrowLeft className="h-4 w-4 mr-2" />
                         Back to Main Dashboard
+                    </Link>
+                    <Link href="/due-activities" className="inline-flex items-center text-indigo-400 hover:text-indigo-300 transition-colors">
+                        <ArrowRight className="h-4 w-4 mr-2" />
+                        Due Activities
                     </Link>
                 </header>
                 <main>
