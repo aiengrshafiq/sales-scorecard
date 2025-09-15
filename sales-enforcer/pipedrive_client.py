@@ -235,3 +235,47 @@ async def get_all_open_activities_async(user_id: int | None = None):
                 _handle_async_request_exception(e, f"get all open activities")
                 return []
     return all_activities
+
+
+# Add this new async function to your pipedrive_client.py file
+
+async def get_activities_by_date_range_async(user_id: int | None, start_date: date, end_date: date):
+    """
+    Async: Fetches all open (not done) activities within a date range.
+    """
+    url = f"{V1_BASE}/activities"
+    params = {
+        "api_token": API_TOKEN,
+        "done": 0, # 0 = not done
+        "start_date": start_date.strftime('%Y-%m-%d'),
+        "end_date": end_date.strftime('%Y-%m-%d'),
+        "limit": 500
+    }
+    if user_id:
+        params["user_id"] = user_id
+
+    all_activities = []
+    start = 0
+
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        while True:
+            params["start"] = start
+            try:
+                resp = await client.get(url, params=params)
+                resp.raise_for_status()
+                body = resp.json()
+                data = body.get("data") or []
+                if not data:
+                    break
+                
+                all_activities.extend(data)
+                
+                pagination = body.get("additional_data", {}).get("pagination", {})
+                if not pagination or not pagination.get("more_items_in_collection"):
+                    break
+                start += len(data)
+
+            except httpx.RequestError as e:
+                _handle_async_request_exception(e, f"get activities by date range")
+                return []
+    return all_activities
