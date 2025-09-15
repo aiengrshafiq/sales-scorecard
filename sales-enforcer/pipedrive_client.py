@@ -242,25 +242,26 @@ async def get_all_open_activities_async(user_id: int | None = None):
 
 
 
+# ✅ FIXED: This new function replaces the old, incorrect one.
 async def get_activities_by_due_date_range_async(
     owner_id: Optional[int],
     start_date: date,
     end_date: date,
-    done: int = 0,                 # 0 = not done, 1 = done
+    done: int = 0,
 ):
     """
     Fetch activities via v2 and filter by due_date INCLUSIVE on the client side.
     """
-    url = f"{V2_BASE}/activities"  # v2 path
+    url = f"{V2_BASE}/activities"
     params = {
         "api_token": API_TOKEN,
-        "done": bool(done),                 # v2 expects boolean
+        "done": bool(done),
         "sort_by": "due_date",
         "sort_direction": "asc",
         "limit": 500,
     }
     if owner_id:
-        params["owner_id"] = owner_id       # v2 param name is owner_id
+        params["owner_id"] = owner_id
 
     activities = []
     async with httpx.AsyncClient(timeout=60.0) as client:
@@ -273,24 +274,24 @@ async def get_activities_by_due_date_range_async(
             body = resp.json()
             data = body.get("data") or []
 
-            # Inclusive filter on due_date
+            # Inclusive client-side filter on due_date
             for a in data:
-                dd = a.get("due_date")
-                if not dd:
+                due_date_str = a.get("due_date")
+                if not due_date_str:
                     continue
-                d = date.fromisoformat(dd)
-                if d < start_date:
-                    continue
+                d = date.fromisoformat(due_date_str)
                 if d > end_date:
-                    # Because we sort asc by due_date, once the last item on this page
-                    # exceeds end_date, later pages won't be relevant.
+                    # Because we sort by due_date, we can stop fetching new pages
+                    # once the first item on a page is already past our end_date.
+                    # To be safe, we'll check the last item and break after this loop.
                     continue
-                activities.append(a)
+                if d >= start_date:
+                    activities.append(a)
 
-            # Early break if the last item on the page is already beyond end_date
+            # Early break optimization
             if data:
-                last_dd = data[-1].get("due_date")
-                if last_dd and date.fromisoformat(last_dd) > end_date:
+                last_due_date_str = data[-1].get("due_date")
+                if last_due_date_str and date.fromisoformat(last_due_date_str) > end_date:
                     break
 
             cursor = (body.get("additional_data") or {}).get("next_cursor")

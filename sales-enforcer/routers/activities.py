@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime, date, timezone, timedelta
-from zoneinfo import ZoneInfo
+from datetime import datetime, date, timedelta
+from zoneinfo import ZoneInfo # Requires Python 3.9+
 
 import pipedrive_client
 
@@ -22,23 +22,23 @@ class DueActivityItem(BaseModel):
 # --- API Endpoint ---
 @router.get("/due-activities", response_model=List[DueActivityItem], tags=["Activities"])
 async def get_due_activities(
-    user_id: Optional[int] = None,
-    start_date: Optional[date] = None,
+    user_id: Optional[int] = None, 
+    start_date: Optional[date] = None, 
     end_date: Optional[date] = None
 ):
     """
     Fetches all open (not done) activities within a given due_date range (inclusive).
     """
-    # Use company TZ (assumed Dubai) for date comparisons
+    # ✅ FIXED: Use company timezone for accurate "overdue" checks
     dubai_today = datetime.now(ZoneInfo("Asia/Dubai")).date()
 
-    # Defaults: today .. today+30d
-    if start_date is None:
-        start_date = dubai_today
+    # Default to one month ago -> today, as per your original request
     if end_date is None:
-        end_date = dubai_today + timedelta(days=30)   # <- fixed the colon
-
-    # v2 fetch + client-side due_date filter
+        end_date = dubai_today
+    if start_date is None:
+        start_date = dubai_today - timedelta(days: 30)
+    
+    # ✅ FIXED: Call the new, correct v2 client function
     activities = await pipedrive_client.get_activities_by_due_date_range_async(
         owner_id=user_id,
         start_date=start_date,
@@ -49,26 +49,24 @@ async def get_due_activities(
     if not activities:
         return []
 
-    items: List[DueActivityItem] = []
-    for a in activities:
-        dd_str = a.get("due_date")
-        if not dd_str:
+    response_items: List[DueActivityItem] = []
+    for activity in activities:
+        due_date_str = activity.get("due_date")
+        if not due_date_str:
             continue
-        dd = datetime.strptime(dd_str, "%Y-%m-%d").date()
+        due_date = datetime.strptime(due_date_str, "%Y-%m-%d").date()
 
-        items.append(
+        response_items.append(
             DueActivityItem(
-                id=a["id"],
-                subject=a.get("subject", "No Subject"),
-                type=a.get("type", "task"),
-                due_date=dd_str,
-                # v2 may not include 'owner_name'; fall back gracefully
-                owner_name=a.get("owner_name") or a.get("owner_id") and str(a["owner_id"]) or "Unknown",
-                deal_id=a.get("deal_id"),
-                deal_title=a.get("deal_title", "No Associated Deal"),
-                is_overdue=(dd < dubai_today),
+                id=activity["id"],
+                subject=activity.get("subject", "No Subject"),
+                type=activity.get("type", "task"),
+                due_date=due_date_str,
+                owner_name=activity.get("owner_name") or (activity.get("owner_id") and str(activity["owner_id"])) or "Unknown",
+                deal_id=activity.get("deal_id"),
+                deal_title=activity.get("deal_title", "No Associated Deal"),
+                is_overdue=(due_date < dubai_today)
             )
         )
-
-    # Sort by due_date ascending (string sort is fine for YYYY-MM-DD)
-    return sorted(items, key=lambda x: x.due_date)
+        
+    return sorted(response_items, key=lambda x: x.due_date)
