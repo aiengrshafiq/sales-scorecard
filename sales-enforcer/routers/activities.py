@@ -33,13 +33,11 @@ async def get_due_activities(
     tz = ZoneInfo("Asia/Dubai")
     today_dubai = datetime.now(tz).date()
 
-    # Default to one month ago -> today
+    if start_date is None:
+        start_date = today_dubai - timedelta(days=30) # ✅ FIXED: Corrected the typo
     if end_date is None:
         end_date = today_dubai
-    if start_date is None:
-        start_date = today_dubai - timedelta(days=30)
 
-    # ✅ FIXED: Use the correct logic to either fetch for one user or aggregate for all.
     if user_id:
         activities = await pipedrive_client.get_activities_by_due_date_range_v2_async(
             owner_id=user_id,
