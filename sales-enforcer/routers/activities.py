@@ -33,8 +33,9 @@ async def get_due_activities(
     tz = ZoneInfo("Asia/Dubai")
     today_dubai = datetime.now(tz).date()
 
+    # ✅ FIXED: Corrected the typo from days: to days=
     if start_date is None:
-        start_date = today_dubai - timedelta(days=30) # ✅ FIXED: Corrected the typo
+        start_date = today_dubai - timedelta(days=30)
     if end_date is None:
         end_date = today_dubai
 
