@@ -5,8 +5,9 @@ import httpx
 from dotenv import load_dotenv
 from datetime import date
 
-from typing import Optional
+
 from zoneinfo import ZoneInfo  # Python 3.9+
+from typing import Optional, List, Dict
 
 load_dotenv()
 
@@ -197,78 +198,82 @@ async def get_all_users_async():
         return _handle_async_request_exception(e, "get all users")
 
 
-# ✅ ADD THIS NEW ASYNC FUNCTION AT THE END OF THE FILE
-
-async def get_all_open_activities_async(user_id: int | None = None):
+# ✅ FIXED: New, correct v2 function for fetching activities.
+async def get_activities_by_due_date_range_v2_async(
+    owner_id: Optional[int],
+    start_date: date,
+    end_date: date,
+    done: bool = False
+) -> List[Dict]:
     """
-    Async: Fetches all open (not done) activities, with pagination.
-    Optionally filters by a specific user.
+    v2: Fetch activities sorted by due_date, then filter locally by inclusive due_date.
     """
-    url = f"{V1_BASE}/activities"
+    url = f"{V2_BASE}/activities"
     params = {
         "api_token": API_TOKEN,
-        "done": 0, # 0 = not done
-        "limit": 500
+        "sort_by": "due_date",
+        "sort_direction": "asc",
+        "limit": 500,
+        "done": done,
     }
-    if user_id:
-        params["user_id"] = user_id
+    if owner_id:
+        params["owner_id"] = owner_id
 
-    all_activities = []
-    start = 0
-
+    results: List[Dict] = []
     async with httpx.AsyncClient(timeout=60.0) as client:
+        cursor = None
         while True:
-            params["start"] = start
-            try:
-                resp = await client.get(url, params=params)
-                resp.raise_for_status()
-                body = resp.json()
-                data = body.get("data") or []
-                if not data:
-                    break
+            if cursor:
+                params["cursor"] = cursor
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            body = resp.json() or {}
+            data = body.get("data") or []
+
+            for a in data:
+                dd = a.get("due_date")
+                if not dd: continue
+                d = date.fromisoformat(dd)
                 
-                all_activities.extend(data)
+                if d > end_date:
+                    # Early stop optimization: if the first item on a page is already past the end date, stop.
+                    # This check is moved up for better performance.
+                    return results
                 
-                pagination = body.get("additional_data", {}).get("pagination", {})
-                if not pagination or not pagination.get("more_items_in_collection"):
-                    break
-                start += len(data)
+                if start_date <= d <= end_date:
+                    results.append(a)
 
-            except httpx.RequestError as e:
-                _handle_async_request_exception(e, f"get all open activities")
-                return []
-    return all_activities
+            cursor = (body.get("additional_data") or {}).get("next_cursor")
+            if not cursor:
+                break
+    return results
 
+# ✅ ADDED: Aggregator function to handle the "All Salespersons" case correctly.
+async def get_due_activities_all_salespersons_async(
+    start_date: date,
+    end_date: date,
+    done: bool = False
+) -> List[Dict]:
+    """
+    Aggregates activities for all active users.
+    """
+    users = await get_all_users_async()
+    all_items: List[Dict] = []
+    
+    # Run requests for all users concurrently for better performance
+    async def fetch_for_user(user):
+        uid = user.get("id")
+        if not uid: return []
+        items = await get_activities_by_due_date_range_v2_async(
+            owner_id=uid, start_date=start_date, end_date=end_date, done=done,
+        )
+        owner_name = user.get("name") or str(uid)
+        for it in items:
+            it.setdefault("owner_name", owner_name)
+        return items
 
-
-
-async def get_all_open_activities_async(user_id: int | None = None):
-    """Async: Fetches ALL open (not done) activities, with pagination."""
-    url = f"{V1_BASE}/activities"
-    params = {"api_token": API_TOKEN, "done": 0, "limit": 500}
-    if user_id:
-        params["user_id"] = user_id
-
-    all_activities = []
-    start = 0
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        while True:
-            params["start"] = start
-            try:
-                resp = await client.get(url, params=params)
-                resp.raise_for_status()
-                body = resp.json()
-                data = body.get("data") or []
-                if not data:
-                    break
-                
-                all_activities.extend(data)
-                
-                pagination = body.get("additional_data", {}).get("pagination", {})
-                if not pagination or not pagination.get("more_items_in_collection"):
-                    break
-                start += len(data)
-            except httpx.RequestError as e:
-                _handle_async_request_exception(e, f"get all open activities")
-                return []
-    return all_activities
+    results = await asyncio.gather(*(fetch_for_user(u) for u in users))
+    for user_items in results:
+        all_items.extend(user_items)
+        
+    return all_items
