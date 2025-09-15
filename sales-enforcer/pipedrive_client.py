@@ -242,60 +242,33 @@ async def get_all_open_activities_async(user_id: int | None = None):
 
 
 
-# ✅ FIXED: This new function replaces the old, incorrect one.
-async def get_activities_by_due_date_range_async(
-    owner_id: Optional[int],
-    start_date: date,
-    end_date: date,
-    done: int = 0,
-):
-    """
-    Fetch activities via v2 and filter by due_date INCLUSIVE on the client side.
-    """
-    url = f"{V2_BASE}/activities"
-    params = {
-        "api_token": API_TOKEN,
-        "done": bool(done),
-        "sort_by": "due_date",
-        "sort_direction": "asc",
-        "limit": 500,
-    }
-    if owner_id:
-        params["owner_id"] = owner_id
+async def get_all_open_activities_async(user_id: int | None = None):
+    """Async: Fetches ALL open (not done) activities, with pagination."""
+    url = f"{V1_BASE}/activities"
+    params = {"api_token": API_TOKEN, "done": 0, "limit": 500}
+    if user_id:
+        params["user_id"] = user_id
 
-    activities = []
+    all_activities = []
+    start = 0
     async with httpx.AsyncClient(timeout=60.0) as client:
-        cursor = None
         while True:
-            if cursor:
-                params["cursor"] = cursor
-            resp = await client.get(url, params=params)
-            resp.raise_for_status()
-            body = resp.json()
-            data = body.get("data") or []
-
-            # Inclusive client-side filter on due_date
-            for a in data:
-                due_date_str = a.get("due_date")
-                if not due_date_str:
-                    continue
-                d = date.fromisoformat(due_date_str)
-                if d > end_date:
-                    # Because we sort by due_date, we can stop fetching new pages
-                    # once the first item on a page is already past our end_date.
-                    # To be safe, we'll check the last item and break after this loop.
-                    continue
-                if d >= start_date:
-                    activities.append(a)
-
-            # Early break optimization
-            if data:
-                last_due_date_str = data[-1].get("due_date")
-                if last_due_date_str and date.fromisoformat(last_due_date_str) > end_date:
+            params["start"] = start
+            try:
+                resp = await client.get(url, params=params)
+                resp.raise_for_status()
+                body = resp.json()
+                data = body.get("data") or []
+                if not data:
                     break
-
-            cursor = (body.get("additional_data") or {}).get("next_cursor")
-            if not cursor:
-                break
-
-    return activities
+                
+                all_activities.extend(data)
+                
+                pagination = body.get("additional_data", {}).get("pagination", {})
+                if not pagination or not pagination.get("more_items_in_collection"):
+                    break
+                start += len(data)
+            except httpx.RequestError as e:
+                _handle_async_request_exception(e, f"get all open activities")
+                return []
+    return all_activities

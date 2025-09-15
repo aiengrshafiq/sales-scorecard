@@ -1,8 +1,8 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional, List
-from datetime import datetime, date, timedelta
-from zoneinfo import ZoneInfo # Requires Python 3.9+
+from datetime import datetime, date, timezone, timedelta
+from zoneinfo import ZoneInfo
 
 import pipedrive_client
 
@@ -27,45 +27,50 @@ async def get_due_activities(
     end_date: Optional[date] = None
 ):
     """
-    Fetches all open (not done) activities within a given due_date range (inclusive).
+    Fetches all open (not done) activities and then filters them by due date range.
     """
-    # ✅ FIXED: Use company timezone for accurate "overdue" checks
+    # ✅ FIXED: First, fetch ALL open activities for the user.
+    all_open_activities = await pipedrive_client.get_all_open_activities_async(user_id=user_id)
+
+    # Use company TZ (assumed Dubai) for date comparisons
     dubai_today = datetime.now(ZoneInfo("Asia/Dubai")).date()
 
-    # Default to one month ago -> today, as per your original request
+    # Default to one month ago -> today
     if end_date is None:
         end_date = dubai_today
     if start_date is None:
-        start_date = dubai_today - timedelta(days: 30)
-    
-    # ✅ FIXED: Call the new, correct v2 client function
-    activities = await pipedrive_client.get_activities_by_due_date_range_async(
-        owner_id=user_id,
-        start_date=start_date,
-        end_date=end_date,
-        done=0,
-    )
+        start_date = dubai_today - timedelta(days=30)
 
-    if not activities:
+    # ✅ FIXED: Now, filter the complete list by the correct due date.
+    filtered_activities = []
+    for activity in all_open_activities:
+        if not (activity and activity.get("due_date")):
+            continue
+        
+        try:
+            due_date = datetime.strptime(activity["due_date"], '%Y-%m-%d').date()
+            if start_date <= due_date <= end_date:
+                filtered_activities.append(activity)
+        except (ValueError, TypeError):
+            continue # Skip if date is malformed
+
+    if not filtered_activities:
         return []
 
     response_items: List[DueActivityItem] = []
-    for activity in activities:
-        due_date_str = activity.get("due_date")
-        if not due_date_str:
-            continue
-        due_date = datetime.strptime(due_date_str, "%Y-%m-%d").date()
+    for activity in filtered_activities:
+        due_date = datetime.strptime(activity["due_date"], "%Y-%m-%d").date()
 
         response_items.append(
             DueActivityItem(
                 id=activity["id"],
                 subject=activity.get("subject", "No Subject"),
                 type=activity.get("type", "task"),
-                due_date=due_date_str,
-                owner_name=activity.get("owner_name") or (activity.get("owner_id") and str(activity["owner_id"])) or "Unknown",
+                due_date=activity["due_date"],
+                owner_name=activity.get("owner_name") or "Unknown",
                 deal_id=activity.get("deal_id"),
                 deal_title=activity.get("deal_title", "No Associated Deal"),
-                is_overdue=(due_date < dubai_today)
+                is_overdue=(due_date < dubai_today),
             )
         )
         
