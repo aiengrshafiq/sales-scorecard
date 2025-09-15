@@ -5,6 +5,9 @@ import httpx
 from dotenv import load_dotenv
 from datetime import date
 
+from typing import Optional
+from zoneinfo import ZoneInfo  # Python 3.9+
+
 load_dotenv()
 
 API_TOKEN = os.getenv("PIPEDRIVE_API_TOKEN")
@@ -237,45 +240,61 @@ async def get_all_open_activities_async(user_id: int | None = None):
     return all_activities
 
 
-# Add this new async function to your pipedrive_client.py file
 
-async def get_activities_by_date_range_async(user_id: int | None, start_date: date, end_date: date):
+
+async def get_activities_by_due_date_range_async(
+    owner_id: Optional[int],
+    start_date: date,
+    end_date: date,
+    done: int = 0,                 # 0 = not done, 1 = done
+):
     """
-    Async: Fetches all open (not done) activities within a date range.
+    Fetch activities via v2 and filter by due_date INCLUSIVE on the client side.
     """
-    url = f"{V1_BASE}/activities"
+    url = f"{V2_BASE}/activities"  # v2 path
     params = {
         "api_token": API_TOKEN,
-        "done": 0, # 0 = not done
-        "start_date": start_date.strftime('%Y-%m-%d'),
-        "end_date": end_date.strftime('%Y-%m-%d'),
-        "limit": 500
+        "done": bool(done),                 # v2 expects boolean
+        "sort_by": "due_date",
+        "sort_direction": "asc",
+        "limit": 500,
     }
-    if user_id:
-        params["user_id"] = user_id
+    if owner_id:
+        params["owner_id"] = owner_id       # v2 param name is owner_id
 
-    all_activities = []
-    start = 0
-
+    activities = []
     async with httpx.AsyncClient(timeout=60.0) as client:
+        cursor = None
         while True:
-            params["start"] = start
-            try:
-                resp = await client.get(url, params=params)
-                resp.raise_for_status()
-                body = resp.json()
-                data = body.get("data") or []
-                if not data:
-                    break
-                
-                all_activities.extend(data)
-                
-                pagination = body.get("additional_data", {}).get("pagination", {})
-                if not pagination or not pagination.get("more_items_in_collection"):
-                    break
-                start += len(data)
+            if cursor:
+                params["cursor"] = cursor
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            body = resp.json()
+            data = body.get("data") or []
 
-            except httpx.RequestError as e:
-                _handle_async_request_exception(e, f"get activities by date range")
-                return []
-    return all_activities
+            # Inclusive filter on due_date
+            for a in data:
+                dd = a.get("due_date")
+                if not dd:
+                    continue
+                d = date.fromisoformat(dd)
+                if d < start_date:
+                    continue
+                if d > end_date:
+                    # Because we sort asc by due_date, once the last item on this page
+                    # exceeds end_date, later pages won't be relevant.
+                    continue
+                activities.append(a)
+
+            # Early break if the last item on the page is already beyond end_date
+            if data:
+                last_dd = data[-1].get("due_date")
+                if last_dd and date.fromisoformat(last_dd) > end_date:
+                    break
+
+            cursor = (body.get("additional_data") or {}).get("next_cursor")
+            if not cursor:
+                break
+
+    return activities
